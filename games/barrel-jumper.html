@@ -1,0 +1,2278 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Barrel Jumper</title>
+    <meta name="description" content="Climb sloped steel girders, leap over rolling barrels, grab the power mallet, and reach the summit in this retro arcade platformer." />
+    <meta name="game:genre" content="Platformer" />
+    <meta name="game:tags" content="barrels, ladders, classic, 1-player, keyboard" />
+    <meta name="game:added" content="2026-11-21" />
+    <meta name="game:year" content="1981" />
+    <meta name="game:controls" content="Arrow keys or WASD to move and climb, Space to jump, P to pause, M to mute" />
+    <meta name="game:author" content="Arcade Bot" />
+    <meta name="game:color" content="#ff4d6d" />
+    <style>
+      /* Full-viewport zero-scrollbar arcade cabinet layout */
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #05050a;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      }
+
+      #stageWrap {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 50% 45%, #120d21 0%, #05050a 72%);
+      }
+
+      #gameCanvas {
+        display: block;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+        box-shadow: 0 0 36px rgba(255, 77, 109, 0.22), 0 0 0 2px rgba(255, 77, 109, 0.25);
+        background: #070712;
+        border-radius: 6px;
+      }
+
+      /* Compact utility buttons (Pause / Mute) */
+      #topControls {
+        position: fixed;
+        top: max(8px, env(safe-area-inset-top));
+        right: max(8px, env(safe-area-inset-right));
+        display: flex;
+        gap: 6px;
+        z-index: 20;
+      }
+
+      .util-btn {
+        background: rgba(12, 10, 26, 0.78);
+        border: 1.5px solid rgba(255, 77, 109, 0.7);
+        color: #f8fafc;
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        cursor: pointer;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+        transition: transform 0.08s ease, background 0.12s ease;
+      }
+
+      .util-btn:hover {
+        background: rgba(255, 77, 109, 0.3);
+      }
+
+      .util-btn:active {
+        transform: scale(0.94);
+      }
+
+      /* Mobile / Touch on-screen controls */
+      #touchControls {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        display: none;
+        z-index: 15;
+      }
+
+      #touchControls.visible {
+        display: block;
+      }
+
+      .dpad {
+        position: absolute;
+        left: max(12px, env(safe-area-inset-left));
+        bottom: max(12px, env(safe-area-inset-bottom));
+        display: grid;
+        grid-template-columns: repeat(3, clamp(46px, 12vw, 60px));
+        grid-template-rows: repeat(3, clamp(46px, 12vw, 60px));
+        gap: 4px;
+        pointer-events: none;
+      }
+
+      .jump-wrap {
+        position: absolute;
+        right: max(16px, env(safe-area-inset-right));
+        bottom: max(22px, env(safe-area-inset-bottom));
+        pointer-events: none;
+      }
+
+      .touch-btn {
+        pointer-events: auto;
+        border-radius: 12px;
+        border: 2px solid rgba(0, 229, 255, 0.72);
+        background: rgba(10, 14, 32, 0.58);
+        color: #00e5ff;
+        font-family: inherit;
+        font-size: clamp(16px, 4.5vw, 22px);
+        font-weight: 900;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 12px rgba(0, 229, 255, 0.25), inset 0 0 8px rgba(0, 229, 255, 0.14);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        transition: transform 0.06s ease, background 0.06s ease;
+        padding: 0;
+        outline: none;
+      }
+
+      .touch-btn.jump-btn {
+        width: clamp(72px, 19vw, 94px);
+        height: clamp(72px, 19vw, 94px);
+        border-radius: 50%;
+        border-color: rgba(255, 77, 109, 0.9);
+        color: #ff4d6d;
+        font-size: clamp(13px, 3.6vw, 17px);
+        letter-spacing: 0.05em;
+        box-shadow: 0 0 16px rgba(255, 77, 109, 0.35), inset 0 0 10px rgba(255, 77, 109, 0.2);
+      }
+
+      .touch-btn.active {
+        transform: scale(0.92);
+        background: rgba(255, 77, 109, 0.45);
+        border-color: #ffffff;
+        color: #ffffff;
+      }
+
+      .dpad-up { grid-column: 2; grid-row: 1; }
+      .dpad-left { grid-column: 1; grid-row: 2; }
+      .dpad-right { grid-column: 3; grid-row: 2; }
+      .dpad-down { grid-column: 2; grid-row: 3; }
+
+      @media (pointer: coarse) {
+        #touchControls.playing-touch {
+          display: block;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stageWrap">
+      <canvas id="gameCanvas" width="480" height="560" aria-label="Barrel Jumper Retro Arcade Platformer"></canvas>
+    </div>
+
+    <!-- Compact utility controls -->
+    <div id="topControls">
+      <button id="muteBtn" class="util-btn" type="button" aria-label="Toggle Mute">SFX: ON</button>
+      <button id="pauseBtn" class="util-btn" type="button" aria-label="Toggle Pause" style="display:none;">PAUSE</button>
+    </div>
+
+    <!-- On-screen mobile touch controls -->
+    <div id="touchControls" aria-hidden="true">
+      <div class="dpad">
+        <button id="btnUp" class="touch-btn dpad-up" type="button" aria-label="Climb Up">&#9650;</button>
+        <button id="btnLeft" class="touch-btn dpad-left" type="button" aria-label="Move Left">&#9664;</button>
+        <button id="btnRight" class="touch-btn dpad-right" type="button" aria-label="Move Right">&#9654;</button>
+        <button id="btnDown" class="touch-btn dpad-down" type="button" aria-label="Climb Down">&#9660;</button>
+      </div>
+      <div class="jump-wrap">
+        <button id="btnJump" class="touch-btn jump-btn" type="button" aria-label="Jump">JUMP</button>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        "use strict";
+
+        // =========================================================================
+        // 1. LOGICAL CONSTANTS & PERSISTENCE
+        // =========================================================================
+        const LOGICAL_W = 480;
+        const LOGICAL_H = 560;
+        const HIGHSCORE_KEY = "barrel-jumper:highscore";
+
+        const GRAVITY = 720;
+        const PLAYER_SPEED = 112;
+        const CLIMB_SPEED = 78;
+        const JUMP_VELOCITY = -255;
+        const LADDER_SNAP_X = 12;
+        const MALLET_DURATION = 8.0;
+        const EXTRA_LIFE_SCORE = 10000;
+
+        const STATE = {
+          ATTRACT: "ATTRACT",
+          PLAYING: "PLAYING",
+          PAUSED: "PAUSED",
+          DYING: "DYING",
+          STAGE_CLEAR: "STAGE_CLEAR",
+          GAMEOVER: "GAMEOVER"
+        };
+
+        // Stage color themes (alternating Steel Tower & Steel Foundry palettes)
+        const THEMES = [
+          {
+            name: "STEEL TOWER",
+            bgTop: "#060612",
+            bgBot: "#12091f",
+            girderMain: "#ff3366",
+            girderHi: "#ff7597",
+            girderDark: "#8f0e34",
+            rivet: "#ffd166",
+            ladder: "#00e5ff",
+            ladderDark: "#007799",
+            accent: "#ff4d6d"
+          },
+          {
+            name: "STEEL FOUNDRY",
+            bgTop: "#09060e",
+            bgBot: "#1e0d0a",
+            girderMain: "#ff7b00",
+            girderHi: "#ffb703",
+            girderDark: "#9a3412",
+            rivet: "#fef08a",
+            ladder: "#38ef7d",
+            ladderDark: "#0f766e",
+            accent: "#ff9e00"
+          },
+          {
+            name: "NEON RIG",
+            bgTop: "#050914",
+            bgBot: "#110a29",
+            girderMain: "#d946ef",
+            girderHi: "#f0abfc",
+            girderDark: "#701a75",
+            rivet: "#67e8f9",
+            ladder: "#facc15",
+            ladderDark: "#a16207",
+            accent: "#e879f9"
+          }
+        ];
+
+        function loadHighScore() {
+          try {
+            const val = parseInt(window.localStorage.getItem(HIGHSCORE_KEY), 10);
+            return Number.isFinite(val) && val > 0 ? val : 0;
+          } catch (_) {
+            return 0;
+          }
+        }
+
+        function saveHighScore(val) {
+          try {
+            window.localStorage.setItem(HIGHSCORE_KEY, String(Math.floor(val)));
+          } catch (_) {
+            // Ignore sandboxed storage restrictions
+          }
+        }
+
+        // =========================================================================
+        // 2. CANVAS SETUP & RESPONSIVE SCALING
+        // =========================================================================
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d", { alpha: false });
+        const touchControls = document.getElementById("touchControls");
+        const muteBtn = document.getElementById("muteBtn");
+        const pauseBtn = document.getElementById("pauseBtn");
+
+        canvas.width = LOGICAL_W;
+        canvas.height = LOGICAL_H;
+        ctx.imageSmoothingEnabled = false;
+
+        function resizeCanvas() {
+          const vw = Math.max(1, window.innerWidth);
+          const vh = Math.max(1, window.innerHeight);
+          const aspect = LOGICAL_W / LOGICAL_H;
+          let drawW = vw;
+          let drawH = vw / aspect;
+          if (drawH > vh) {
+            drawH = vh;
+            drawW = vh * aspect;
+          }
+          canvas.style.width = `${Math.floor(drawW)}px`;
+          canvas.style.height = `${Math.floor(drawH)}px`;
+        }
+        window.addEventListener("resize", resizeCanvas);
+        resizeCanvas();
+
+        // =========================================================================
+        // 3. WEB AUDIO API RETRO CHIPTUNE SYNTH (Lazy-initialized on user gesture)
+        // =========================================================================
+        class ChiptuneAudio {
+          constructor() {
+            this.ctx = null;
+            this.master = null;
+            this.noiseBuffer = null;
+            this.muted = false;
+            this.initialized = false;
+          }
+
+          init() {
+            if (this.initialized) {
+              if (this.ctx && this.ctx.state === "suspended") {
+                this.ctx.resume().catch(() => {});
+              }
+              return;
+            }
+            try {
+              const AudioCtx = window.AudioContext || window.webkitAudioContext;
+              if (!AudioCtx) return;
+              this.ctx = new AudioCtx();
+              this.master = this.ctx.createGain();
+              this.master.gain.value = this.muted ? 0 : 0.34;
+              this.master.connect(this.ctx.destination);
+
+              // Reusable noise buffer for smash crunches and flame pops
+              const len = Math.floor(this.ctx.sampleRate * 0.6);
+              this.noiseBuffer = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+              const ch = this.noiseBuffer.getChannelData(0);
+              for (let i = 0; i < len; i++) {
+                ch[i] = Math.random() * 2 - 1;
+              }
+              this.initialized = true;
+            } catch (_) {
+              // Audio unavailable
+            }
+          }
+
+          setMuted(m) {
+            this.muted = m;
+            muteBtn.textContent = this.muted ? "SFX: OFF" : "SFX: ON";
+            if (this.master && this.ctx) {
+              this.master.gain.setTargetAtTime(this.muted ? 0 : 0.34, this.ctx.currentTime, 0.02);
+            }
+          }
+
+          toggleMute() {
+            this.setMuted(!this.muted);
+          }
+
+          tone(type, freqStart, freqEnd, duration, vol = 0.25, delay = 0) {
+            if (!this.initialized || !this.ctx || this.muted) return;
+            const now = this.ctx.currentTime + delay;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freqStart, now);
+            if (freqEnd !== freqStart) {
+              osc.frequency.exponentialRampToValueAtTime(Math.max(20, freqEnd), now + duration);
+            }
+            gain.gain.setValueAtTime(0.001, now);
+            gain.gain.linearRampToValueAtTime(vol, now + 0.008);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+            osc.connect(gain);
+            gain.connect(this.master);
+            osc.start(now);
+            osc.stop(now + duration + 0.02);
+          }
+
+          noise(duration, filterFreq, vol = 0.3, delay = 0) {
+            if (!this.initialized || !this.ctx || !this.noiseBuffer || this.muted) return;
+            const now = this.ctx.currentTime + delay;
+            const src = this.ctx.createBufferSource();
+            src.buffer = this.noiseBuffer;
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = "bandpass";
+            filter.frequency.setValueAtTime(filterFreq, now);
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(vol, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+            src.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.master);
+            src.start(now);
+            src.stop(now + duration + 0.02);
+          }
+
+          playStep(alt) {
+            this.tone("triangle", alt ? 165 : 195, 95, 0.045, 0.16);
+          }
+
+          playClimb(alt) {
+            this.tone("square", alt ? 290 : 350, alt ? 240 : 310, 0.04, 0.11);
+          }
+
+          playJump() {
+            this.tone("square", 210, 560, 0.16, 0.22);
+          }
+
+          playJumpBonus() {
+            this.tone("square", 659.25, 659.25, 0.07, 0.22, 0);
+            this.tone("square", 987.77, 987.77, 0.12, 0.24, 0.07);
+          }
+
+          playMalletPickup() {
+            const notes = [440, 554.37, 659.25, 880];
+            notes.forEach((f, i) => this.tone("square", f, f, 0.09, 0.22, i * 0.065));
+          }
+
+          playMalletBeat(alt) {
+            this.tone("triangle", alt ? 146.8 : 196.0, alt ? 140 : 185, 0.09, 0.2);
+          }
+
+          playSmash() {
+            this.noise(0.18, 900, 0.42);
+            this.tone("square", 320, 75, 0.16, 0.3);
+            this.tone("square", 784, 1175, 0.11, 0.2, 0.06);
+          }
+
+          playBarrelToss() {
+            this.tone("triangle", 130, 80, 0.12, 0.2);
+          }
+
+          playIgnite() {
+            this.noise(0.24, 520, 0.32);
+            this.tone("sawtooth", 180, 420, 0.2, 0.18);
+          }
+
+          playExtraLife() {
+            const notes = [523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5];
+            notes.forEach((f, i) => this.tone("square", f, f, 0.1, 0.22, i * 0.08));
+          }
+
+          playDeath() {
+            const notes = [392, 370, 349, 330, 261.6, 196, 130.8];
+            notes.forEach((f, i) => this.tone("sawtooth", f, f * 0.92, 0.12, 0.24, i * 0.1));
+          }
+
+          playStageClear() {
+            const notes = [523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5, 1318.5];
+            const times = [0, 0.1, 0.2, 0.3, 0.45, 0.56, 0.68];
+            notes.forEach((f, i) => this.tone("square", f, f, i === 6 ? 0.35 : 0.11, 0.24, times[i]));
+          }
+        }
+
+        const audio = new ChiptuneAudio();
+
+        // =========================================================================
+        // 4. LEVEL GEOMETRY (Exact Sloped Girders + Solid/Broken Ladders)
+        // =========================================================================
+        let girders = [];
+        let ladders = [];
+        let mallets = [];
+        let oilDrum = { x: 48, tier: 0, ignited: false, flameTimer: 0 };
+
+        /**
+         * Exact mathematical Y coordinate of the top surface of a girder tier at any X.
+         * Guarantees climber, barrels, ladders, and sparks align without clipping.
+         */
+        function getGirderY(tierIndex, x) {
+          const g = girders[tierIndex];
+          if (!g) return 500;
+          if (g.flatEndX !== undefined && x <= g.flatEndX) {
+            return g.yLeft;
+          }
+          if (g.flatStartX !== undefined && x >= g.flatStartX) {
+            return g.yRight;
+          }
+          const startX = g.flatEndX !== undefined ? g.flatEndX : g.x1;
+          const endX = g.flatStartX !== undefined ? g.flatStartX : g.x2;
+          const t = Math.max(0, Math.min(1, (x - startX) / Math.max(1, endX - startX)));
+          return g.yLeft + (g.yRight - g.yLeft) * t;
+        }
+
+        function buildStageLayout(stageNum) {
+          const isFoundry = stageNum % 2 === 0; // Alternate layout on even stages!
+          const slopeExtra = isFoundry ? 5 : 0;
+
+          // 6 sloped tiers (0 = bottom, 5 = boss tier) + tier 6 summit rescue pod
+          girders = [
+            // Tier 0 (Bottom): flat on left around Oil Drum, slopes up to right
+            { tier: 0, x1: 22, x2: 458, yLeft: 516, yRight: 502 - slopeExtra * 0.4, flatEndX: 196, rollDir: -1 },
+            // Tier 1: slopes down to right
+            { tier: 1, x1: 22, x2: 430, yLeft: 424 - slopeExtra, yRight: 444, rollDir: 1 },
+            // Tier 2: slopes down to left
+            { tier: 2, x1: 50, x2: 458, yLeft: 374, yRight: 354 - slopeExtra, rollDir: -1 },
+            // Tier 3: slopes down to right
+            { tier: 3, x1: 22, x2: 430, yLeft: 286 - slopeExtra, yRight: 306, rollDir: 1 },
+            // Tier 4: slopes down to left
+            { tier: 4, x1: 50, x2: 458, yLeft: 236, yRight: 216 - slopeExtra, rollDir: -1 },
+            // Tier 5 (Boss Tier): flat on left for Crusher-Bot & barrel stack, slopes down to right
+            { tier: 5, x1: 22, x2: 430, yLeft: 148, yRight: 164 + slopeExtra * 0.5, flatEndX: 195, rollDir: 1 },
+            // Tier 6 (Summit Rescue Platform)
+            { tier: 6, x1: 192, x2: 312, yLeft: 92, yRight: 92, rollDir: 0 }
+          ];
+
+          // Define solid climbable ladders and visibly broken ladders (barrels can tumble down broken ones)
+          const rawLadders = isFoundry
+            ? [
+                // Foundry alternate ladder placement
+                { x: 386, from: 0, to: 1, broken: false },
+                { x: 210, from: 0, to: 1, broken: true },
+                { x: 96, from: 1, to: 2, broken: false },
+                { x: 266, from: 1, to: 2, broken: false },
+                { x: 376, from: 2, to: 3, broken: false },
+                { x: 170, from: 2, to: 3, broken: true },
+                { x: 112, from: 3, to: 4, broken: false },
+                { x: 292, from: 3, to: 4, broken: false },
+                { x: 382, from: 4, to: 5, broken: false },
+                { x: 216, from: 4, to: 5, broken: true },
+                { x: 288, from: 5, to: 6, broken: false }
+              ]
+            : [
+                // Classic Steel Tower ladder placement
+                { x: 392, from: 0, to: 1, broken: false },
+                { x: 172, from: 0, to: 1, broken: true },
+                { x: 88, from: 1, to: 2, broken: false },
+                { x: 230, from: 1, to: 2, broken: false },
+                { x: 390, from: 2, to: 3, broken: false },
+                { x: 264, from: 2, to: 3, broken: false },
+                { x: 146, from: 2, to: 3, broken: true },
+                { x: 94, from: 3, to: 4, broken: false },
+                { x: 204, from: 3, to: 4, broken: false },
+                { x: 344, from: 3, to: 4, broken: true },
+                { x: 388, from: 4, to: 5, broken: false },
+                { x: 248, from: 4, to: 5, broken: true },
+                { x: 286, from: 5, to: 6, broken: false }
+              ];
+
+          ladders = rawLadders.map((l) => ({
+            x: l.x,
+            fromTier: l.from,
+            toTier: l.to,
+            broken: l.broken,
+            yBottom: getGirderY(l.from, l.x),
+            yTop: getGirderY(l.to, l.x)
+          }));
+
+          // Two glowing Power Mallets on mid-level girders
+          mallets = isFoundry
+            ? [
+                { x: 315, tier: 1, y: getGirderY(1, 315) - 24, taken: false },
+                { x: 145, tier: 4, y: getGirderY(4, 145) - 24, taken: false }
+              ]
+            : [
+                { x: 74, tier: 1, y: getGirderY(1, 74) - 24, taken: false },
+                { x: 345, tier: 3, y: getGirderY(3, 345) - 24, taken: false }
+              ];
+
+          oilDrum = {
+            x: 48,
+            tier: 0,
+            y: getGirderY(0, 48),
+            ignited: false,
+            flameTimer: 0
+          };
+        }
+
+        // =========================================================================
+        // 5. GAME STATE & ENTITIES
+        // =========================================================================
+        let gameState = STATE.ATTRACT;
+        let score = 0;
+        let highScore = loadHighScore();
+        let isNewHighScore = false;
+        let extraLifeAwarded = false;
+        let lives = 3;
+        let stage = 1;
+        let bonus = 5000;
+        let bonusTickTimer = 0;
+        let stateTimer = 0;
+        let elapsedTime = 0;
+        let barrelCountSpawned = 0;
+
+        // Player entity
+        const player = {
+          x: 108,
+          y: 516,
+          vx: 0,
+          vy: 0,
+          tier: 0,
+          facing: 1,
+          grounded: true,
+          climbing: false,
+          ladder: null,
+          walkAnim: 0,
+          stepSoundTimer: 0,
+          climbAnim: 0,
+          malletTimer: 0,
+          malletSwingPhase: 0,
+          malletBeatTimer: 0,
+          jumpedHazards: new Set()
+        };
+
+        // Crusher-Bot boss entity
+        const boss = {
+          x: 112,
+          y: 148,
+          state: "IDLE", // IDLE, GRAB, HOLD, THROW, BEAT
+          timer: 1.0,
+          nextBlue: true,
+          beatPhase: 0
+        };
+
+        let barrels = [];
+        let sparks = [];
+        let particles = [];
+        let popups = [];
+
+        // Input state
+        const keys = {
+          left: false,
+          right: false,
+          up: false,
+          down: false,
+          jump: false
+        };
+        let jumpJustPressed = false;
+
+        const touchInput = {
+          left: false,
+          right: false,
+          up: false,
+          down: false,
+          jump: false
+        };
+
+        // =========================================================================
+        // 6. INPUT & LIFECYCLE HANDLERS
+        // =========================================================================
+        function unlockAudio() {
+          audio.init();
+        }
+
+        function updateUIControls() {
+          const showPause =
+            gameState === STATE.PLAYING ||
+            gameState === STATE.PAUSED ||
+            gameState === STATE.DYING ||
+            gameState === STATE.STAGE_CLEAR;
+          pauseBtn.style.display = showPause ? "inline-block" : "none";
+          pauseBtn.textContent = gameState === STATE.PAUSED ? "RESUME" : "PAUSE";
+
+          if (gameState === STATE.PLAYING) {
+            touchControls.classList.add("playing-touch");
+          } else {
+            touchControls.classList.remove("playing-touch");
+          }
+        }
+
+        function setPaused(paused) {
+          if (gameState !== STATE.PLAYING && gameState !== STATE.PAUSED) return;
+          gameState = paused ? STATE.PAUSED : STATE.PLAYING;
+          updateUIControls();
+        }
+
+        function togglePause() {
+          if (gameState === STATE.PLAYING) setPaused(true);
+          else if (gameState === STATE.PAUSED) setPaused(false);
+        }
+
+        function addScore(pts, x, y, color = "#fff066") {
+          if (gameState === STATE.ATTRACT) return;
+          score += pts;
+          if (score > highScore) {
+            highScore = score;
+            isNewHighScore = true;
+            saveHighScore(highScore);
+          }
+          if (!extraLifeAwarded && score >= EXTRA_LIFE_SCORE) {
+            extraLifeAwarded = true;
+            lives = Math.min(5, lives + 1);
+            audio.playExtraLife();
+            spawnPopup("1UP!", player.x, player.y - 34, "#38ef7d");
+          }
+          if (x !== undefined && y !== undefined) {
+            spawnPopup(`+${pts}`, x, y, color);
+          }
+        }
+
+        function spawnPopup(text, x, y, color = "#fff066") {
+          popups.push({ text, x, y, color, life: 0.95, maxLife: 0.95 });
+        }
+
+        function spawnBurst(x, y, color, count = 12) {
+          for (let i = 0; i < count; i++) {
+            const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4;
+            const spd = 45 + Math.random() * 110;
+            particles.push({
+              x,
+              y,
+              vx: Math.cos(angle) * spd,
+              vy: Math.sin(angle) * spd - 35,
+              life: 0.35 + Math.random() * 0.25,
+              maxLife: 0.6,
+              color,
+              size: 2 + Math.floor(Math.random() * 3)
+            });
+          }
+        }
+
+        function resetPlayerForStage() {
+          player.x = 110;
+          player.tier = 0;
+          player.y = getGirderY(0, player.x);
+          player.vx = 0;
+          player.vy = 0;
+          player.facing = 1;
+          player.grounded = true;
+          player.climbing = false;
+          player.ladder = null;
+          player.walkAnim = 0;
+          player.climbAnim = 0;
+          player.malletTimer = 0;
+          player.jumpedHazards.clear();
+        }
+
+        function setupStage(stageNum, isAttract = false) {
+          buildStageLayout(stageNum);
+          barrels = [];
+          sparks = [];
+          particles = [];
+          popups = [];
+          barrelCountSpawned = 0;
+          bonus = Math.min(8000, 5000 + (stageNum - 1) * 500);
+          bonusTickTimer = 0;
+
+          boss.x = 112;
+          boss.y = getGirderY(5, boss.x);
+          boss.state = "GRAB";
+          boss.timer = isAttract ? 0.35 : 0.7;
+          boss.nextBlue = true;
+
+          resetPlayerForStage();
+
+          // Pre-seed a couple of rolling barrels in Attract Mode so the preview tile is instantly lively
+          if (isAttract) {
+            spawnBarrel(true, 260, 5);
+            spawnBarrel(false, 220, 3);
+            spawnBarrel(false, 310, 1);
+          }
+        }
+
+        function startNewGame() {
+          unlockAudio();
+          score = 0;
+          isNewHighScore = false;
+          extraLifeAwarded = false;
+          lives = 3;
+          stage = 1;
+          gameState = STATE.PLAYING;
+          setupStage(stage, false);
+          updateUIControls();
+          audio.playJumpBonus();
+        }
+
+        // Keyboard listeners
+        window.addEventListener("keydown", (e) => {
+          const code = e.code;
+          if (
+            code === "ArrowUp" ||
+            code === "ArrowDown" ||
+            code === "ArrowLeft" ||
+            code === "ArrowRight" ||
+            code === "Space"
+          ) {
+            e.preventDefault();
+          }
+
+          unlockAudio();
+
+          if (code === "KeyM") {
+            audio.toggleMute();
+            return;
+          }
+
+          if (code === "KeyP" || code === "Escape") {
+            if (gameState === STATE.PLAYING || gameState === STATE.PAUSED) {
+              togglePause();
+            }
+            return;
+          }
+
+          if (code === "Space" || code === "Enter") {
+            if (gameState === STATE.ATTRACT || gameState === STATE.GAMEOVER) {
+              startNewGame();
+              return;
+            }
+            if (gameState === STATE.PAUSED) {
+              setPaused(false);
+              return;
+            }
+          }
+
+          if (code === "ArrowLeft" || code === "KeyA") keys.left = true;
+          if (code === "ArrowRight" || code === "KeyD") keys.right = true;
+          if (code === "ArrowUp" || code === "KeyW") keys.up = true;
+          if (code === "ArrowDown" || code === "KeyS") keys.down = true;
+          if (code === "Space" || code === "KeyZ") {
+            if (!keys.jump) jumpJustPressed = true;
+            keys.jump = true;
+          }
+        });
+
+        window.addEventListener("keyup", (e) => {
+          const code = e.code;
+          if (code === "ArrowLeft" || code === "KeyA") keys.left = false;
+          if (code === "ArrowRight" || code === "KeyD") keys.right = false;
+          if (code === "ArrowUp" || code === "KeyW") keys.up = false;
+          if (code === "ArrowDown" || code === "KeyS") keys.down = false;
+          if (code === "Space" || code === "KeyZ") keys.jump = false;
+        });
+
+        // Auto-pause when tab loses focus
+        window.addEventListener("blur", () => {
+          keys.left = keys.right = keys.up = keys.down = keys.jump = false;
+          if (gameState === STATE.PLAYING) setPaused(true);
+        });
+
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden && gameState === STATE.PLAYING) {
+            keys.left = keys.right = keys.up = keys.down = keys.jump = false;
+            setPaused(true);
+          }
+        });
+
+        // Utility buttons
+        muteBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          unlockAudio();
+          audio.toggleMute();
+        });
+
+        pauseBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          unlockAudio();
+          togglePause();
+        });
+
+        // Tap canvas to start / resume
+        canvas.addEventListener("pointerdown", (e) => {
+          unlockAudio();
+          if (e.pointerType === "touch") {
+            touchControls.classList.add("visible");
+          }
+          if (gameState === STATE.ATTRACT || gameState === STATE.GAMEOVER) {
+            startNewGame();
+          } else if (gameState === STATE.PAUSED) {
+            setPaused(false);
+          }
+        });
+
+        // Bind touch buttons
+        function bindTouchBtn(id, prop, isJump = false) {
+          const el = document.getElementById(id);
+          const down = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            unlockAudio();
+            touchControls.classList.add("visible");
+            if (isJump && !touchInput.jump) jumpJustPressed = true;
+            touchInput[prop] = true;
+            el.classList.add("active");
+          };
+          const up = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            touchInput[prop] = false;
+            el.classList.remove("active");
+          };
+          el.addEventListener("pointerdown", down);
+          el.addEventListener("pointerup", up);
+          el.addEventListener("pointercancel", up);
+          el.addEventListener("pointerleave", up);
+        }
+
+        bindTouchBtn("btnLeft", "left");
+        bindTouchBtn("btnRight", "right");
+        bindTouchBtn("btnUp", "up");
+        bindTouchBtn("btnDown", "down");
+        bindTouchBtn("btnJump", "jump", true);
+
+        // =========================================================================
+        // 7. ENTITY SPAWNERS (Barrels & Fire Sparks)
+        // =========================================================================
+        let nextHazardId = 1;
+
+        function spawnBarrel(isBlue = false, startX = 148, startTier = 5) {
+          barrelCountSpawned++;
+          const g = girders[startTier];
+          const baseSpeed = (isBlue ? 128 : 104) + Math.min(stage - 1, 6) * 10;
+          barrels.push({
+            id: nextHazardId++,
+            x: startX,
+            y: getGirderY(startTier, startX),
+            vx: g.rollDir * baseSpeed,
+            vy: 0,
+            tier: startTier,
+            blue: isBlue,
+            state: "ROLL", // ROLL, FALL, LADDER
+            ladder: null,
+            rot: 0,
+            checkedLadders: new Set()
+          });
+        }
+
+        function spawnFireSpark() {
+          const maxSparks = Math.min(3, 1 + Math.floor((stage + 1) / 2));
+          if (sparks.length >= maxSparks) return;
+          sparks.push({
+            id: nextHazardId++,
+            x: oilDrum.x + 12,
+            y: oilDrum.y,
+            tier: 0,
+            dir: 1,
+            speed: 52 + Math.min(stage - 1, 5) * 6,
+            state: "PATROL", // PATROL, CLIMB
+            ladder: null,
+            climbDir: -1,
+            aiTimer: 0.4,
+            anim: 0
+          });
+        }
+
+        // =========================================================================
+        // 8. AUTONOMOUS ATTRACT MODE AI
+        // =========================================================================
+        function computeAttractControls() {
+          const ctrl = { left: false, right: false, up: false, down: false, jump: false };
+
+          // Find target solid ladder on current tier leading upward
+          const upLadders = ladders.filter((l) => !l.broken && l.fromTier === player.tier);
+          let targetX = 250;
+          if (upLadders.length > 0) {
+            // Pick closest ladder to climber
+            let best = upLadders[0];
+            let bestDist = Math.abs(best.x - player.x);
+            for (let i = 1; i < upLadders.length; i++) {
+              const d = Math.abs(upLadders[i].x - player.x);
+              if (d < bestDist) {
+                best = upLadders[i];
+                bestDist = d;
+              }
+            }
+            targetX = best.x;
+          }
+
+          if (player.climbing) {
+            ctrl.up = true;
+            return ctrl;
+          }
+
+          // Jump over incoming barrels on same tier
+          if (player.grounded && player.malletTimer <= 0) {
+            for (let i = 0; i < barrels.length; i++) {
+              const b = barrels[i];
+              if (b.state !== "ROLL" || b.tier !== player.tier) continue;
+              const dx = b.x - player.x;
+              const approaching = (dx > 0 && b.vx < 0) || (dx < 0 && b.vx > 0);
+              if (approaching && Math.abs(dx) < 42 && Math.abs(dx) > 10) {
+                ctrl.jump = true;
+                break;
+              }
+            }
+          }
+
+          if (Math.abs(targetX - player.x) <= 6 && upLadders.length > 0 && player.malletTimer <= 0) {
+            ctrl.up = true;
+          } else if (targetX < player.x - 4) {
+            ctrl.left = true;
+          } else if (targetX > player.x + 4) {
+            ctrl.right = true;
+          }
+
+          return ctrl;
+        }
+
+        // =========================================================================
+        // 9. PHYSICS & GAMEPLAY UPDATE
+        // =========================================================================
+        function updateBoss(dt) {
+          boss.timer -= dt;
+          boss.beatPhase += dt * 7;
+
+          const speedScale = Math.max(0.52, 1 - (stage - 1) * 0.08);
+          if (boss.timer <= 0) {
+            if (boss.state === "IDLE" || boss.state === "BEAT") {
+              boss.state = "GRAB";
+              boss.timer = 0.42 * speedScale;
+            } else if (boss.state === "GRAB") {
+              boss.state = "HOLD";
+              boss.timer = 0.38 * speedScale;
+            } else if (boss.state === "HOLD") {
+              boss.state = "THROW";
+              boss.timer = 0.34 * speedScale;
+              // Toss barrel! First barrel of stage is blue to ignite oil drum, then every 5th
+              const isBlue = boss.nextBlue || (barrelCountSpawned > 0 && barrelCountSpawned % 5 === 0);
+              boss.nextBlue = false;
+              spawnBarrel(isBlue, boss.x + 32, 5);
+              if (gameState === STATE.PLAYING) audio.playBarrelToss();
+            } else if (boss.state === "THROW") {
+              boss.state = Math.random() < 0.35 ? "BEAT" : "IDLE";
+              boss.timer = (1.25 + Math.random() * 0.7) * speedScale;
+            }
+          }
+        }
+
+        function updatePlayer(dt, input, jumpTrig) {
+          // Mallet countdown
+          if (player.malletTimer > 0) {
+            player.malletTimer = Math.max(0, player.malletTimer - dt);
+            player.malletSwingPhase += dt * 15;
+            player.malletBeatTimer -= dt;
+            if (player.malletBeatTimer <= 0 && gameState === STATE.PLAYING) {
+              player.malletBeatTimer = 0.19;
+              audio.playMalletBeat(Math.floor(player.malletSwingPhase) % 2 === 0);
+            }
+          }
+
+          // Climbing state
+          if (player.climbing && player.ladder) {
+            const lad = player.ladder;
+            player.x += (lad.x - player.x) * Math.min(1, dt * 18);
+            player.vx = 0;
+            player.vy = 0;
+
+            let moveY = 0;
+            if (input.up) moveY = -1;
+            else if (input.down) moveY = 1;
+
+            if (moveY !== 0) {
+              player.y += moveY * CLIMB_SPEED * dt;
+              player.climbAnim += dt * 10;
+              player.stepSoundTimer -= dt;
+              if (player.stepSoundTimer <= 0 && gameState === STATE.PLAYING) {
+                player.stepSoundTimer = 0.16;
+                audio.playClimb(Math.floor(player.climbAnim) % 2 === 0);
+              }
+            }
+
+            // Reached top of ladder -> step cleanly onto upper girder
+            if (player.y <= lad.yTop + 2) {
+              player.y = lad.yTop;
+              player.tier = lad.toTier;
+              player.climbing = false;
+              player.ladder = null;
+              player.grounded = true;
+            } else if (player.y >= lad.yBottom - 1) {
+              // Reached bottom of ladder -> step onto lower girder
+              player.y = lad.yBottom;
+              player.tier = lad.fromTier;
+              player.climbing = false;
+              player.ladder = null;
+              player.grounded = true;
+            }
+            return;
+          }
+
+          // Check ladder grab (only when grounded and NOT holding power mallet)
+          if (player.grounded && player.malletTimer <= 0) {
+            if (input.up) {
+              for (let i = 0; i < ladders.length; i++) {
+                const l = ladders[i];
+                if (!l.broken && l.fromTier === player.tier && Math.abs(player.x - l.x) <= LADDER_SNAP_X) {
+                  player.climbing = true;
+                  player.ladder = l;
+                  player.x = l.x;
+                  player.y = l.yBottom - 3;
+                  player.grounded = false;
+                  return;
+                }
+              }
+            } else if (input.down) {
+              for (let i = 0; i < ladders.length; i++) {
+                const l = ladders[i];
+                if (!l.broken && l.toTier === player.tier && Math.abs(player.x - l.x) <= LADDER_SNAP_X) {
+                  player.climbing = true;
+                  player.ladder = l;
+                  player.x = l.x;
+                  player.y = l.yTop + 4;
+                  player.grounded = false;
+                  return;
+                }
+              }
+            }
+          }
+
+          // Horizontal movement
+          let moveX = 0;
+          if (input.left) moveX -= 1;
+          if (input.right) moveX += 1;
+
+          if (player.grounded) {
+            player.vx = moveX * PLAYER_SPEED;
+            if (moveX !== 0) {
+              player.facing = moveX;
+              player.walkAnim += dt * 13;
+              player.stepSoundTimer -= dt;
+              if (player.stepSoundTimer <= 0 && gameState === STATE.PLAYING) {
+                player.stepSoundTimer = 0.17;
+                audio.playStep(Math.floor(player.walkAnim) % 2 === 0);
+              }
+            }
+          } else {
+            // Slight air control for fair arcade feel
+            player.vx += (moveX * PLAYER_SPEED - player.vx) * Math.min(1, dt * 3.5);
+          }
+
+          // Jump initiation (disabled while swinging mallet)
+          if (jumpTrig && player.grounded && player.malletTimer <= 0) {
+            player.vy = JUMP_VELOCITY;
+            player.grounded = false;
+            player.jumpedHazards.clear();
+            if (gameState === STATE.PLAYING) audio.playJump();
+          }
+
+          // Integrate position
+          const prevY = player.y;
+          player.x += player.vx * dt;
+          player.x = Math.max(26, Math.min(LOGICAL_W - 26, player.x));
+
+          if (player.grounded) {
+            const g = girders[player.tier];
+            if (player.x < g.x1 - 4 || player.x > g.x2 + 4) {
+              // Walked off edge of girder -> fall!
+              player.grounded = false;
+              player.vy = 0;
+            } else {
+              player.y = getGirderY(player.tier, player.x);
+            }
+          } else {
+            player.vy += GRAVITY * dt;
+            player.y += player.vy * dt;
+
+            // Check landing on any girder while descending
+            if (player.vy >= 0) {
+              for (let t = girders.length - 1; t >= 0; t--) {
+                const g = girders[t];
+                if (player.x >= g.x1 - 5 && player.x <= g.x2 + 5) {
+                  const gy = getGirderY(t, player.x);
+                  if (prevY <= gy + 6 && player.y >= gy) {
+                    player.y = gy;
+                    player.vy = 0;
+                    player.tier = t;
+                    player.grounded = true;
+                    player.jumpedHazards.clear();
+                    break;
+                  }
+                }
+              }
+            }
+
+            // Safety floor clamp
+            if (player.y > LOGICAL_H + 20) {
+              triggerPlayerDeath();
+              return;
+            }
+          }
+
+          // Power Mallet pickup check
+          for (let i = 0; i < mallets.length; i++) {
+            const m = mallets[i];
+            if (!m.taken && Math.abs(player.x - m.x) < 16 && Math.abs(player.y - 12 - m.y) < 18) {
+              m.taken = true;
+              player.malletTimer = MALLET_DURATION;
+              player.malletSwingPhase = 0;
+              player.malletBeatTimer = 0.05;
+              if (gameState === STATE.PLAYING) {
+                audio.playMalletPickup();
+                spawnPopup("MALLET!", m.x, m.y - 10, "#00e5ff");
+              }
+            }
+          }
+
+          // Check summit goal!
+          if (player.tier === 6 && player.grounded) {
+            if (gameState === STATE.ATTRACT) {
+              setupStage(stage, true);
+            } else if (gameState === STATE.PLAYING) {
+              addScore(bonus, player.x, player.y - 26, "#38ef7d");
+              gameState = STATE.STAGE_CLEAR;
+              stateTimer = 2.6;
+              audio.playStageClear();
+              spawnBurst(252, 74, "#ffd166", 20);
+              spawnBurst(252, 74, "#00e5ff", 14);
+            }
+          }
+        }
+
+        function updateBarrels(dt) {
+          for (let i = barrels.length - 1; i >= 0; i--) {
+            const b = barrels[i];
+
+            if (b.state === "ROLL") {
+              b.x += b.vx * dt;
+              b.rot += (b.vx / 10) * dt;
+              const g = girders[b.tier];
+              b.y = getGirderY(b.tier, b.x);
+
+              // Chance to tumble down a ladder (solid or broken) when passing its top
+              if (b.tier > 0) {
+                for (let l = 0; l < ladders.length; l++) {
+                  const lad = ladders[l];
+                  if (lad.toTier === b.tier && !b.checkedLadders.has(l) && Math.abs(b.x - lad.x) < 5) {
+                    b.checkedLadders.add(l);
+                    const chance = (b.blue ? 0.42 : 0.24) + Math.min(stage - 1, 5) * 0.03;
+                    if (Math.random() < chance) {
+                      b.state = "LADDER";
+                      b.ladder = lad;
+                      b.x = lad.x;
+                      b.vx = 0;
+                      b.vy = (b.blue ? 105 : 88) + Math.min(stage - 1, 5) * 6;
+                      break;
+                    }
+                  }
+                }
+              }
+
+              if (b.state === "ROLL") {
+                // Reached Oil Drum at bottom-left on tier 0
+                if (b.tier === 0 && b.x <= oilDrum.x + 10) {
+                  if (b.blue || !oilDrum.ignited) {
+                    oilDrum.ignited = true;
+                    spawnBurst(oilDrum.x, oilDrum.y - 22, "#ff7b00", 14);
+                    spawnFireSpark();
+                    if (gameState === STATE.PLAYING) audio.playIgnite();
+                  }
+                  barrels.splice(i, 1);
+                  continue;
+                }
+
+                // Rolled off girder edge -> fall to next tier down
+                if ((b.vx > 0 && b.x > g.x2 + 3) || (b.vx < 0 && b.x < g.x1 - 3)) {
+                  b.state = "FALL";
+                  b.vy = 20;
+                }
+              }
+            } else if (b.state === "LADDER") {
+              b.y += b.vy * dt;
+              b.rot += 10 * dt;
+              if (b.y >= b.ladder.yBottom) {
+                b.tier = b.ladder.fromTier;
+                b.y = getGirderY(b.tier, b.x);
+                const g = girders[b.tier];
+                const spd = (b.blue ? 128 : 104) + Math.min(stage - 1, 6) * 10;
+                b.vx = g.rollDir * spd;
+                b.vy = 0;
+                b.state = "ROLL";
+                b.ladder = null;
+              }
+            } else if (b.state === "FALL") {
+              b.x += b.vx * 0.35 * dt;
+              b.vy += GRAVITY * dt;
+              b.y += b.vy * dt;
+              b.rot += 8 * dt;
+
+              const nextTier = b.tier - 1;
+              if (nextTier >= 0) {
+                const ng = girders[nextTier];
+                const targetY = getGirderY(nextTier, b.x);
+                if (b.y >= targetY) {
+                  b.tier = nextTier;
+                  b.y = targetY;
+                  const spd = (b.blue ? 128 : 104) + Math.min(stage - 1, 6) * 10;
+                  b.vx = ng.rollDir * spd;
+                  b.vy = 0;
+                  b.state = "ROLL";
+                }
+              } else if (b.y > LOGICAL_H + 20) {
+                barrels.splice(i, 1);
+              }
+            }
+          }
+        }
+
+        function updateSparks(dt) {
+          if (oilDrum.ignited) {
+            oilDrum.flameTimer += dt * 10;
+          }
+
+          for (let i = 0; i < sparks.length; i++) {
+            const s = sparks[i];
+            s.anim += dt * 12;
+
+            if (s.state === "CLIMB" && s.ladder) {
+              s.y += s.climbDir * (s.speed * 0.85) * dt;
+              if (s.climbDir < 0 && s.y <= s.ladder.yTop) {
+                s.tier = s.ladder.toTier;
+                s.y = s.ladder.yTop;
+                s.state = "PATROL";
+                s.ladder = null;
+                s.dir = player.x >= s.x ? 1 : -1;
+              } else if (s.climbDir > 0 && s.y >= s.ladder.yBottom) {
+                s.tier = s.ladder.fromTier;
+                s.y = s.ladder.yBottom;
+                s.state = "PATROL";
+                s.ladder = null;
+                s.dir = player.x >= s.x ? 1 : -1;
+              }
+            } else {
+              const g = girders[s.tier];
+              s.x += s.dir * s.speed * dt;
+              s.y = getGirderY(s.tier, s.x);
+
+              // Bounce off girder ends (stay away from oil drum)
+              const minX = s.tier === 0 ? oilDrum.x + 22 : g.x1 + 10;
+              const maxX = g.x2 - 10;
+              if (s.x <= minX) {
+                s.x = minX;
+                s.dir = 1;
+              } else if (s.x >= maxX) {
+                s.x = maxX;
+                s.dir = -1;
+              }
+
+              // Periodically consider climbing a solid ladder toward player's tier
+              s.aiTimer -= dt;
+              if (s.aiTimer <= 0) {
+                s.aiTimer = 0.25;
+                for (let l = 0; l < ladders.length; l++) {
+                  const lad = ladders[l];
+                  if (lad.broken || lad.toTier === 6) continue;
+                  if (Math.abs(s.x - lad.x) < 6) {
+                    if (lad.fromTier === s.tier && (player.tier > s.tier ? Math.random() < 0.65 : Math.random() < 0.15)) {
+                      s.state = "CLIMB";
+                      s.ladder = lad;
+                      s.climbDir = -1;
+                      s.x = lad.x;
+                      break;
+                    } else if (lad.toTier === s.tier && (player.tier < s.tier ? Math.random() < 0.55 : Math.random() < 0.12)) {
+                      s.state = "CLIMB";
+                      s.ladder = lad;
+                      s.climbDir = 1;
+                      s.x = lad.x;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        function checkInteractions() {
+          // Player forgiving hitbox (center X, center Y)
+          const px = player.x;
+          const py = player.y - 12;
+
+          // Power Mallet active smash zone
+          const hasMallet = player.malletTimer > 0;
+          const swingUp = Math.sin(player.malletSwingPhase) > 0;
+          const malletX = swingUp ? px : px + player.facing * 20;
+          const malletY = swingUp ? py - 18 : py - 2;
+
+          // 1. Check barrels
+          for (let i = barrels.length - 1; i >= 0; i--) {
+            const b = barrels[i];
+            const bx = b.x;
+            const by = b.y - 8;
+
+            // Mallet smash check
+            if (hasMallet && Math.hypot(malletX - bx, malletY - by) < 22) {
+              spawnBurst(bx, by, b.blue ? "#00e5ff" : "#ff9e00", 14);
+              addScore(300, bx, by - 10, "#ffd166");
+              if (gameState === STATE.PLAYING) audio.playSmash();
+              barrels.splice(i, 1);
+              continue;
+            }
+
+            // Jump-over bonus check (+100 once per barrel per jump)
+            if (!player.grounded && !player.climbing && !player.jumpedHazards.has(b.id)) {
+              if (Math.abs(px - bx) < 14 && by > py + 6 && by < py + 44) {
+                player.jumpedHazards.add(b.id);
+                addScore(100, px, py - 16, "#00e5ff");
+                if (gameState === STATE.PLAYING) audio.playJumpBonus();
+              }
+            }
+
+            // Forgiving collision check
+            if (Math.hypot(px - bx, py - by) < 12) {
+              triggerPlayerDeath();
+              return;
+            }
+          }
+
+          // 2. Check Fire Sparks
+          for (let i = sparks.length - 1; i >= 0; i--) {
+            const s = sparks[i];
+            const sx = s.x;
+            const sy = s.y - 10;
+
+            if (hasMallet && Math.hypot(malletX - sx, malletY - sy) < 23) {
+              spawnBurst(sx, sy, "#ff4d6d", 16);
+              addScore(500, sx, sy - 12, "#ff7597");
+              if (gameState === STATE.PLAYING) audio.playSmash();
+              sparks.splice(i, 1);
+              continue;
+            }
+
+            if (!player.grounded && !player.climbing && !player.jumpedHazards.has(s.id)) {
+              if (Math.abs(px - sx) < 14 && sy > py + 6 && sy < py + 44) {
+                player.jumpedHazards.add(s.id);
+                addScore(100, px, py - 16, "#00e5ff");
+                if (gameState === STATE.PLAYING) audio.playJumpBonus();
+              }
+            }
+
+            if (Math.hypot(px - sx, py - sy) < 12) {
+              triggerPlayerDeath();
+              return;
+            }
+          }
+
+          // 3. Boss body collision
+          if (Math.abs(px - boss.x) < 26 && Math.abs(py - (boss.y - 22)) < 24) {
+            triggerPlayerDeath();
+          }
+        }
+
+        function triggerPlayerDeath() {
+          if (gameState === STATE.ATTRACT) {
+            // Seamlessly respawn demo climber in attract mode
+            resetPlayerForStage();
+            barrels = barrels.filter((b) => b.tier > 0 || Math.abs(b.x - player.x) > 85);
+            return;
+          }
+          if (gameState !== STATE.PLAYING) return;
+          gameState = STATE.DYING;
+          stateTimer = 1.45;
+          spawnBurst(player.x, player.y - 12, "#ff4d6d", 16);
+          audio.playDeath();
+        }
+
+        function updateParticlesAndPopups(dt) {
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vy += 320 * dt;
+            p.life -= dt;
+            if (p.life <= 0) particles.splice(i, 1);
+          }
+          for (let i = popups.length - 1; i >= 0; i--) {
+            const pop = popups[i];
+            pop.y -= 26 * dt;
+            pop.life -= dt;
+            if (pop.life <= 0) popups.splice(i, 1);
+          }
+        }
+
+        function update(dt) {
+          elapsedTime += dt;
+          updateParticlesAndPopups(dt);
+
+          if (gameState === STATE.PAUSED || gameState === STATE.GAMEOVER) {
+            jumpJustPressed = false;
+            return;
+          }
+
+          if (gameState === STATE.DYING) {
+            stateTimer -= dt;
+            if (stateTimer <= 0) {
+              lives -= 1;
+              if (lives <= 0) {
+                gameState = STATE.GAMEOVER;
+                updateUIControls();
+              } else {
+                // Respawn safely at bottom girder and clear nearby hazards
+                resetPlayerForStage();
+                barrels = barrels.filter((b) => b.tier > 0 || Math.abs(b.x - player.x) > 120);
+                sparks = sparks.filter((s) => s.tier > 0 || Math.abs(s.x - player.x) > 120);
+                gameState = STATE.PLAYING;
+              }
+            }
+            jumpJustPressed = false;
+            return;
+          }
+
+          if (gameState === STATE.STAGE_CLEAR) {
+            stateTimer -= dt;
+            if (stateTimer <= 0) {
+              stage += 1;
+              setupStage(stage, false);
+              gameState = STATE.PLAYING;
+            }
+            jumpJustPressed = false;
+            return;
+          }
+
+          // Active gameplay or Attract Mode
+          let input;
+          let jumpTrig;
+          if (gameState === STATE.ATTRACT) {
+            input = computeAttractControls();
+            jumpTrig = input.jump;
+          } else {
+            input = {
+              left: keys.left || touchInput.left,
+              right: keys.right || touchInput.right,
+              up: keys.up || touchInput.up,
+              down: keys.down || touchInput.down,
+              jump: keys.jump || touchInput.jump
+            };
+            jumpTrig = jumpJustPressed;
+
+            // Bonus timer countdown (100 every 2 seconds)
+            bonusTickTimer += dt;
+            if (bonusTickTimer >= 2.0) {
+              bonusTickTimer -= 2.0;
+              bonus = Math.max(0, bonus - 100);
+              if (bonus === 0) {
+                triggerPlayerDeath();
+                jumpJustPressed = false;
+                return;
+              }
+            }
+          }
+
+          updateBoss(dt);
+          updatePlayer(dt, input, jumpTrig);
+          updateBarrels(dt);
+          updateSparks(dt);
+          checkInteractions();
+
+          jumpJustPressed = false;
+        }
+
+        // =========================================================================
+        // 10. PIXEL-ART CANVAS RENDERER
+        // =========================================================================
+        function drawBackground(theme) {
+          const bgGrad = ctx.createLinearGradient(0, 0, 0, LOGICAL_H);
+          bgGrad.addColorStop(0, theme.bgTop);
+          bgGrad.addColorStop(1, theme.bgBot);
+          ctx.fillStyle = bgGrad;
+          ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+          // Subtle industrial blueprint grid
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
+          ctx.lineWidth = 1;
+          for (let x = 24; x < LOGICAL_W; x += 32) {
+            ctx.beginPath();
+            ctx.moveTo(x, 56);
+            ctx.lineTo(x, LOGICAL_H);
+            ctx.stroke();
+          }
+          for (let y = 64; y < LOGICAL_H; y += 32) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(LOGICAL_W, y);
+            ctx.stroke();
+          }
+        }
+
+        function drawGirders(theme) {
+          const segW = 16;
+          const beamH = 12;
+
+          for (let t = 0; t < girders.length; t++) {
+            const g = girders[t];
+            for (let x = g.x1; x < g.x2; x += segW) {
+              const xNext = Math.min(g.x2, x + segW);
+              const y1 = Math.round(getGirderY(t, x));
+              const y2 = Math.round(getGirderY(t, xNext));
+
+              // Main girder body
+              ctx.fillStyle = theme.girderDark;
+              ctx.beginPath();
+              ctx.moveTo(x, y1);
+              ctx.lineTo(xNext, y2);
+              ctx.lineTo(xNext, y2 + beamH);
+              ctx.lineTo(x, y1 + beamH);
+              ctx.closePath();
+              ctx.fill();
+
+              // Top & bottom steel flanges
+              ctx.strokeStyle = theme.girderHi;
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(x, y1 + 1);
+              ctx.lineTo(xNext, y2 + 1);
+              ctx.stroke();
+
+              ctx.strokeStyle = theme.girderMain;
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(x, y1 + beamH - 1);
+              ctx.lineTo(xNext, y2 + beamH - 1);
+              ctx.stroke();
+
+              // Classic steel truss diagonal X-brace
+              ctx.strokeStyle = theme.girderMain;
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(x + 1, y1 + 2);
+              ctx.lineTo(xNext - 1, y2 + beamH - 2);
+              ctx.moveTo(x + 1, y1 + beamH - 2);
+              ctx.lineTo(xNext - 1, y2 + 2);
+              ctx.stroke();
+
+              // Corner rivets
+              ctx.fillStyle = theme.rivet;
+              ctx.fillRect(x + 2, y1 + 2, 2, 2);
+            }
+          }
+        }
+
+        function drawLadders(theme) {
+          const halfW = 7;
+          for (let i = 0; i < ladders.length; i++) {
+            const l = ladders[i];
+            const topY = Math.round(l.yTop);
+            const botY = Math.round(l.yBottom);
+            const midY = (topY + botY) * 0.5;
+            const gapHalf = 14;
+
+            ctx.fillStyle = theme.ladder;
+
+            if (!l.broken) {
+              // Solid rails
+              ctx.fillRect(l.x - halfW, topY, 2, botY - topY);
+              ctx.fillRect(l.x + halfW - 2, topY, 2, botY - topY);
+              // Rungs
+              for (let ry = topY + 6; ry < botY - 2; ry += 8) {
+                ctx.fillStyle = theme.ladderDark;
+                ctx.fillRect(l.x - halfW + 2, ry + 1, halfW * 2 - 4, 2);
+                ctx.fillStyle = theme.ladder;
+                ctx.fillRect(l.x - halfW + 2, ry, halfW * 2 - 4, 2);
+              }
+            } else {
+              // Broken ladder: top stub & bottom stub with missing middle section
+              const topStubEnd = Math.max(topY + 10, midY - gapHalf);
+              const botStubStart = Math.min(botY - 10, midY + gapHalf);
+
+              ctx.fillStyle = "rgba(0, 229, 255, 0.55)";
+              ctx.fillRect(l.x - halfW, topY, 2, topStubEnd - topY);
+              ctx.fillRect(l.x + halfW - 2, topY, 2, topStubEnd - topY);
+              ctx.fillRect(l.x - halfW, botStubStart, 2, botY - botStubStart);
+              ctx.fillRect(l.x + halfW - 2, botStubStart, 2, botY - botStubStart);
+
+              for (let ry = topY + 6; ry < topStubEnd - 2; ry += 8) {
+                ctx.fillRect(l.x - halfW + 2, ry, halfW * 2 - 4, 2);
+              }
+              for (let ry = botStubStart + 4; ry < botY - 2; ry += 8) {
+                ctx.fillRect(l.x - halfW + 2, ry, halfW * 2 - 4, 2);
+              }
+            }
+          }
+        }
+
+        function drawBarrelStack() {
+          // Stack of 4 hazard barrels behind Crusher-Bot on top-left girder
+          const bx = 46;
+          const by = Math.round(getGirderY(5, bx));
+          const positions = [
+            [bx - 10, by - 14],
+            [bx + 8, by - 14],
+            [bx - 10, by - 30],
+            [bx + 8, by - 30]
+          ];
+          for (let i = 0; i < positions.length; i++) {
+            const [x, y] = positions[i];
+            ctx.fillStyle = "#b45309";
+            ctx.fillRect(x - 7, y, 14, 14);
+            ctx.fillStyle = "#f59e0b";
+            ctx.fillRect(x - 5, y + 2, 10, 10);
+            ctx.fillStyle = "#451a03";
+            ctx.fillRect(x - 7, y + 3, 14, 2);
+            ctx.fillRect(x - 7, y + 9, 14, 2);
+          }
+        }
+
+        function drawOilDrum() {
+          const x = oilDrum.x;
+          const y = Math.round(oilDrum.y);
+
+          // Industrial steel drum
+          ctx.fillStyle = "#1d4ed8";
+          ctx.fillRect(x - 13, y - 26, 26, 26);
+          ctx.fillStyle = "#3b82f6";
+          ctx.fillRect(x - 10, y - 24, 6, 22);
+          ctx.fillStyle = "#93c5fd";
+          ctx.fillRect(x - 14, y - 26, 28, 3);
+          ctx.fillRect(x - 14, y - 14, 28, 2);
+          ctx.fillRect(x - 14, y - 3, 28, 3);
+
+          // "OIL" label
+          ctx.fillStyle = "#fef08a";
+          ctx.font = "900 8px ui-monospace, monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("OIL", x, y - 8);
+
+          // Animated pixel flames when ignited
+          if (oilDrum.ignited) {
+            const f = Math.sin(oilDrum.flameTimer);
+            const f2 = Math.cos(oilDrum.flameTimer * 1.3);
+            ctx.fillStyle = "#ff2a55";
+            ctx.fillRect(x - 9, y - 35 - f * 3, 18, 10 + f * 3);
+            ctx.fillStyle = "#ff8800";
+            ctx.fillRect(x - 7, y - 39 - f2 * 4, 14, 13 + f2 * 4);
+            ctx.fillStyle = "#fff066";
+            ctx.fillRect(x - 4, y - 33 - f * 2, 8, 7);
+          }
+        }
+
+        function drawRescuePod() {
+          // Glowing Rescue Pod & waving pilot on summit platform (tier 6)
+          const gx = 244;
+          const gy = Math.round(getGirderY(6, gx));
+          const pulse = 0.65 + 0.35 * Math.sin(elapsedTime * 6);
+
+          // Beacon halo
+          ctx.save();
+          ctx.fillStyle = `rgba(255, 209, 102, ${(0.18 * pulse).toFixed(2)})`;
+          ctx.beginPath();
+          ctx.arc(gx, gy - 20, 26, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+
+          // Rescue Pod capsule
+          ctx.fillStyle = "#0ea5e9";
+          ctx.fillRect(gx - 22, gy - 28, 20, 28);
+          ctx.fillStyle = "#38bdf8";
+          ctx.fillRect(gx - 20, gy - 32, 16, 6);
+          ctx.fillStyle = "#e0f2fe";
+          ctx.fillRect(gx - 18, gy - 24, 12, 10);
+          // Golden beacon light on pod roof
+          ctx.fillStyle = pulse > 0.8 ? "#ffffff" : "#ffd166";
+          ctx.fillRect(gx - 14, gy - 36, 4, 4);
+
+          // Waving pixel pilot next to pod
+          const px = gx + 12;
+          const wave = Math.floor(elapsedTime * 5) % 2 === 0;
+          // Boots & legs
+          ctx.fillStyle = "#f43f5e";
+          ctx.fillRect(px - 4, gy - 8, 3, 8);
+          ctx.fillRect(px + 1, gy - 8, 3, 8);
+          // Suit
+          ctx.fillStyle = "#fde047";
+          ctx.fillRect(px - 5, gy - 17, 10, 9);
+          // Helmet
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(px - 4, gy - 25, 8, 8);
+          ctx.fillStyle = "#0ea5e9";
+          ctx.fillRect(px - 3, gy - 23, 6, 4);
+          // Waving arms
+          ctx.fillStyle = "#fde047";
+          ctx.fillRect(px - 8, wave ? gy - 22 : gy - 17, 3, 6);
+          ctx.fillRect(px + 5, wave ? gy - 17 : gy - 22, 3, 6);
+
+          // Floating "HELP!" / "GOAL" speech tag
+          if (Math.floor(elapsedTime * 1.4) % 2 === 0 && gameState !== STATE.STAGE_CLEAR) {
+            ctx.fillStyle = "#ffd166";
+            ctx.font = "900 9px ui-monospace, monospace";
+            ctx.textAlign = "center";
+            ctx.fillText("SOS!", px + 2, gy - 32);
+          }
+        }
+
+        function drawCrusherBot() {
+          // Hulking armored crimson mech-ape silhouette with glowing amber visor
+          const x = Math.round(boss.x);
+          const y = Math.round(boss.y);
+          const beat = boss.state === "BEAT" ? Math.sin(boss.beatPhase) * 3 : 0;
+
+          ctx.save();
+          ctx.translate(x, y);
+
+          // Heavy mech legs
+          ctx.fillStyle = "#7f1d1d";
+          ctx.fillRect(-18, -14, 12, 14);
+          ctx.fillRect(6, -14, 12, 14);
+          ctx.fillStyle = "#450a0a";
+          ctx.fillRect(-20, -4, 15, 4);
+          ctx.fillRect(5, -4, 15, 4);
+
+          // Armored torso
+          ctx.fillStyle = "#b91c1c";
+          ctx.fillRect(-22, -40, 44, 28);
+          ctx.fillStyle = "#ef4444";
+          ctx.fillRect(-18, -38, 36, 12);
+          // Chest reactor core
+          ctx.fillStyle = "#18181b";
+          ctx.fillRect(-10, -32, 20, 12);
+          ctx.fillStyle = boss.state === "THROW" ? "#fef08a" : "#f59e0b";
+          ctx.fillRect(-6, -29, 12, 6);
+
+          // Mech head & glowing amber visor
+          ctx.fillStyle = "#991b1b";
+          ctx.fillRect(-13, -53, 26, 14);
+          ctx.fillStyle = "#18181b";
+          ctx.fillRect(-10, -49, 20, 6);
+          ctx.fillStyle = "#fbbf24";
+          ctx.fillRect(-8, -48, 16, 4);
+
+          // Articulated mech arms based on toss animation state
+          ctx.fillStyle = "#dc2626";
+          if (boss.state === "GRAB") {
+            // Reach left toward barrel stack
+            ctx.fillRect(-32, -34, 12, 18);
+            ctx.fillRect(20, -34, 10, 20);
+          } else if (boss.state === "HOLD") {
+            // Holding barrel overhead
+            ctx.fillRect(-28, -50, 10, 22);
+            ctx.fillRect(18, -50, 10, 22);
+            // Held barrel preview
+            ctx.fillStyle = boss.nextBlue ? "#0284c7" : "#d97706";
+            ctx.fillRect(-10, -64, 20, 14);
+            ctx.fillStyle = boss.nextBlue ? "#38bdf8" : "#fbbf24";
+            ctx.fillRect(-7, -61, 14, 8);
+          } else if (boss.state === "THROW") {
+            // Reaching right to push barrel
+            ctx.fillRect(-28, -34, 10, 18);
+            ctx.fillRect(20, -34, 15, 12);
+          } else {
+            // Idle / Chest-beat stance
+            ctx.fillRect(-30, -36 + beat, 10, 22);
+            ctx.fillRect(20, -36 - beat, 10, 22);
+          }
+
+          ctx.restore();
+        }
+
+        function drawMallets() {
+          for (let i = 0; i < mallets.length; i++) {
+            const m = mallets[i];
+            if (m.taken) continue;
+            const bob = Math.sin(elapsedTime * 5 + i) * 2.5;
+            const x = Math.round(m.x);
+            const y = Math.round(m.y + bob);
+
+            // Glow ring
+            ctx.fillStyle = "rgba(0, 229, 255, 0.22)";
+            ctx.beginPath();
+            ctx.arc(x, y, 13, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Handle
+            ctx.fillStyle = "#f59e0b";
+            ctx.fillRect(x - 2, y - 2, 4, 12);
+            // Power Mallet head
+            ctx.fillStyle = "#00e5ff";
+            ctx.fillRect(x - 9, y - 9, 18, 9);
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(x - 7, y - 7, 14, 3);
+          }
+        }
+
+        function drawBarrels() {
+          for (let i = 0; i < barrels.length; i++) {
+            const b = barrels[i];
+            const x = Math.round(b.x);
+            const y = Math.round(b.y - 8);
+
+            ctx.save();
+            ctx.translate(x, y);
+
+            if (b.state === "LADDER") {
+              // Tumbling front-view wide barrel
+              ctx.fillStyle = b.blue ? "#0369a1" : "#92400e";
+              ctx.fillRect(-9, -6, 18, 12);
+              ctx.fillStyle = b.blue ? "#38bdf8" : "#f59e0b";
+              ctx.fillRect(-7, -4, 14, 8);
+              ctx.fillStyle = "#1e293b";
+              ctx.fillRect(-9, -2, 18, 2);
+              ctx.fillRect(-9, 2, 18, 2);
+            } else {
+              // Rolling side-view circular barrel
+              ctx.rotate(b.rot);
+              ctx.fillStyle = b.blue ? "#0284c7" : "#b45309";
+              ctx.beginPath();
+              ctx.arc(0, 0, 8, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.strokeStyle = b.blue ? "#7dd3fc" : "#fcd34d";
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.arc(0, 0, 5.5, 0, Math.PI * 2);
+              ctx.stroke();
+
+              // Rotating cross spokes
+              ctx.strokeStyle = b.blue ? "#e0f2fe" : "#451a03";
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(-5, 0);
+              ctx.lineTo(5, 0);
+              ctx.moveTo(0, -5);
+              ctx.lineTo(0, 5);
+              ctx.stroke();
+            }
+
+            ctx.restore();
+          }
+        }
+
+        function drawFireSparks() {
+          for (let i = 0; i < sparks.length; i++) {
+            const s = sparks[i];
+            const x = Math.round(s.x);
+            const y = Math.round(s.y - 9);
+            const flick = Math.floor(s.anim) % 2 === 0;
+
+            // Outer fiery body
+            ctx.fillStyle = "#ff2a55";
+            ctx.fillRect(x - 7, y - 6, 14, 13);
+            ctx.fillStyle = "#ff8800";
+            ctx.fillRect(x - 5, y - 9 - (flick ? 2 : 0), 10, 14);
+            ctx.fillStyle = "#fff066";
+            ctx.fillRect(x - 3, y - 4, 6, 7);
+
+            // Glowing arcade eyes
+            ctx.fillStyle = "#05050a";
+            const eyeOff = s.dir > 0 ? 1 : -2;
+            ctx.fillRect(x - 3 + eyeOff, y - 2, 2, 3);
+            ctx.fillRect(x + 2 + eyeOff, y - 2, 2, 3);
+          }
+        }
+
+        function drawPlayer() {
+          const x = Math.round(player.x);
+          const y = Math.round(player.y);
+
+          // Death spin animation
+          if (gameState === STATE.DYING) {
+            ctx.save();
+            ctx.translate(x, y - 12);
+            ctx.rotate(elapsedTime * 14);
+            ctx.fillStyle = "#00e5ff";
+            ctx.fillRect(-6, -8, 12, 16);
+            ctx.fillStyle = "#ffd166";
+            ctx.fillRect(-7, -11, 14, 5);
+            ctx.restore();
+            return;
+          }
+
+          ctx.save();
+          ctx.translate(x, y);
+
+          const hasMallet = player.malletTimer > 0;
+          const malletFlash = hasMallet && player.malletTimer < 2.0 && Math.floor(elapsedTime * 16) % 2 === 0;
+
+          if (player.climbing) {
+            // Back view climbing animation
+            const step = Math.floor(player.climbAnim) % 2 === 0;
+            // Boots
+            ctx.fillStyle = "#f97316";
+            ctx.fillRect(-5, step ? -6 : -4, 4, 4);
+            ctx.fillRect(1, step ? -4 : -6, 4, 4);
+            // Cyan jumpsuit
+            ctx.fillStyle = "#00e5ff";
+            ctx.fillRect(-6, -16, 12, 11);
+            // Arms reaching rungs
+            ctx.fillStyle = "#fde68a";
+            ctx.fillRect(-8, step ? -21 : -15, 3, 6);
+            ctx.fillRect(5, step ? -15 : -21, 3, 6);
+            // Yellow hard hat
+            ctx.fillStyle = "#ffd166";
+            ctx.fillRect(-6, -24, 12, 6);
+            ctx.fillStyle = "#f59e0b";
+            ctx.fillRect(-7, -19, 14, 2);
+          } else {
+            ctx.scale(player.facing, 1);
+            const runFrame = player.grounded && Math.abs(player.vx) > 5 ? Math.floor(player.walkAnim) % 2 : 0;
+
+            // Boots / legs
+            ctx.fillStyle = "#f97316";
+            if (!player.grounded) {
+              // Jump pose legs
+              ctx.fillRect(-6, -7, 5, 5);
+              ctx.fillRect(2, -9, 5, 5);
+            } else if (runFrame === 1) {
+              ctx.fillRect(-7, -5, 5, 5);
+              ctx.fillRect(2, -4, 5, 4);
+            } else {
+              ctx.fillRect(-5, -5, 4, 5);
+              ctx.fillRect(1, -5, 4, 5);
+            }
+
+            // Cyan engineer jumpsuit torso
+            ctx.fillStyle = malletFlash ? "#ff4d6d" : "#00e5ff";
+            ctx.fillRect(-5, -16, 10, 11);
+            // Reflective safety vest stripe
+            ctx.fillStyle = "#ffd166";
+            ctx.fillRect(-4, -13, 8, 2);
+
+            // Head & face
+            ctx.fillStyle = "#fde68a";
+            ctx.fillRect(-4, -22, 8, 6);
+            // Eye
+            ctx.fillStyle = "#09090b";
+            ctx.fillRect(1, -20, 2, 2);
+
+            // Yellow hard hat with brim
+            ctx.fillStyle = "#ffd166";
+            ctx.fillRect(-5, -26, 10, 5);
+            ctx.fillStyle = "#f59e0b";
+            ctx.fillRect(-5, -22, 12, 2);
+
+            // Swinging Power Mallet
+            if (hasMallet) {
+              const up = Math.sin(player.malletSwingPhase) > 0;
+              ctx.fillStyle = "#f59e0b";
+              if (up) {
+                ctx.fillRect(-1, -34, 4, 14);
+                ctx.fillStyle = malletFlash ? "#ffffff" : "#00e5ff";
+                ctx.fillRect(-8, -42, 18, 9);
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(-6, -40, 14, 3);
+              } else {
+                ctx.fillRect(5, -15, 14, 4);
+                ctx.fillStyle = malletFlash ? "#ffffff" : "#00e5ff";
+                ctx.fillRect(15, -22, 10, 18);
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(17, -20, 3, 14);
+              }
+            } else {
+              // Normal swinging arm
+              ctx.fillStyle = "#0891b2";
+              ctx.fillRect(runFrame ? 2 : -1, -14, 4, 6);
+            }
+          }
+
+          ctx.restore();
+        }
+
+        function drawParticlesAndPopups() {
+          for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+            ctx.fillStyle = p.color;
+            ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
+          }
+          ctx.globalAlpha = 1;
+
+          ctx.font = "900 12px ui-monospace, monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          for (let i = 0; i < popups.length; i++) {
+            const pop = popups[i];
+            ctx.globalAlpha = Math.max(0, pop.life / pop.maxLife);
+            ctx.fillStyle = "#05050a";
+            ctx.fillText(pop.text, pop.x + 1, pop.y + 1);
+            ctx.fillStyle = pop.color;
+            ctx.fillText(pop.text, pop.x, pop.y);
+          }
+          ctx.globalAlpha = 1;
+        }
+
+        function drawHUD(theme) {
+          // Top arcade cabinet HUD bar
+          ctx.fillStyle = "rgba(6, 6, 18, 0.88)";
+          ctx.fillRect(0, 0, LOGICAL_W, 52);
+          ctx.fillStyle = theme.accent;
+          ctx.fillRect(0, 51, LOGICAL_W, 2);
+
+          ctx.textBaseline = "top";
+
+          // 1UP Score
+          ctx.textAlign = "left";
+          ctx.fillStyle = "#ff4d6d";
+          ctx.font = "900 11px ui-monospace, monospace";
+          ctx.fillText("1UP", 14, 6);
+          ctx.fillStyle = "#ffffff";
+          ctx.font = "900 16px ui-monospace, monospace";
+          ctx.fillText(String(score).padStart(6, "0"), 14, 21);
+
+          // High Score
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#00e5ff";
+          ctx.font = "900 11px ui-monospace, monospace";
+          ctx.fillText("HIGH SCORE", LOGICAL_W * 0.5, 6);
+          ctx.fillStyle = "#ffd166";
+          ctx.font = "900 16px ui-monospace, monospace";
+          ctx.fillText(String(highScore).padStart(6, "0"), LOGICAL_W * 0.5, 21);
+
+          // Stage & Bonus Box
+          ctx.textAlign = "right";
+          ctx.fillStyle = "#38ef7d";
+          ctx.font = "900 11px ui-monospace, monospace";
+          ctx.fillText(`STG ${String(stage).padStart(2, "0")}`, LOGICAL_W - 14, 6);
+
+          // Bonus counter
+          ctx.fillStyle = bonus <= 1000 ? "#ff4d6d" : "#ffd166";
+          ctx.font = "900 14px ui-monospace, monospace";
+          ctx.fillText(`BNS ${String(bonus).padStart(4, "0")}`, LOGICAL_W - 14, 23);
+
+          // Lives (mini hard-hat icons under top-left)
+          for (let i = 0; i < lives; i++) {
+            const lx = 18 + i * 16;
+            const ly = 43;
+            ctx.fillStyle = "#ffd166";
+            ctx.fillRect(lx - 5, ly - 4, 10, 4);
+            ctx.fillStyle = "#f59e0b";
+            ctx.fillRect(lx - 6, ly, 12, 2);
+          }
+
+          // Mute status dot in HUD
+          if (audio.muted) {
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#ff4d6d";
+            ctx.font = "800 9px ui-monospace, monospace";
+            ctx.fillText("MUTED", LOGICAL_W * 0.5, 40);
+          }
+        }
+
+        function drawScanlines() {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.14)";
+          for (let y = 0; y < LOGICAL_H; y += 3) {
+            ctx.fillRect(0, y, LOGICAL_W, 1);
+          }
+        }
+
+        function drawAttractOverlay() {
+          // Sleek semi-transparent overlay so live demo gameplay shines through
+          ctx.fillStyle = "rgba(6, 5, 16, 0.54)";
+          ctx.fillRect(24, 130, LOGICAL_W - 48, 290);
+          ctx.strokeStyle = "#ff4d6d";
+          ctx.lineWidth = 3;
+          ctx.strokeRect(24, 130, LOGICAL_W - 48, 290);
+          ctx.strokeStyle = "#00e5ff";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(30, 136, LOGICAL_W - 60, 278);
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          // Retro Arcade Title
+          ctx.save();
+          ctx.shadowColor = "#ff4d6d";
+          ctx.shadowBlur = 16;
+          ctx.fillStyle = "#ffd166";
+          ctx.font = "900 42px ui-monospace, monospace";
+          ctx.fillText("BARREL", LOGICAL_W * 0.5, 186);
+          ctx.fillStyle = "#ff4d6d";
+          ctx.fillText("JUMPER", LOGICAL_W * 0.5, 232);
+          ctx.restore();
+
+          ctx.fillStyle = "#00e5ff";
+          ctx.font = "800 12px ui-monospace, monospace";
+          ctx.fillText("CLIMB THE TOWER  •  DODGE CRUSHER-BOT", LOGICAL_W * 0.5, 272);
+
+          if (highScore > 0) {
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "900 15px ui-monospace, monospace";
+            ctx.fillText(`HIGH SCORE: ${String(highScore).padStart(6, "0")}`, LOGICAL_W * 0.5, 304);
+          }
+
+          // Blinking Start Prompt
+          if (Math.floor(elapsedTime * 2.6) % 2 === 0) {
+            ctx.fillStyle = "#ffd166";
+            ctx.font = "900 15px ui-monospace, monospace";
+            ctx.fillText("PRESS SPACE / ENTER OR TAP TO PLAY", LOGICAL_W * 0.5, 348);
+          }
+
+          ctx.fillStyle = "rgba(226, 232, 240, 0.85)";
+          ctx.font = "700 11px ui-monospace, monospace";
+          ctx.fillText("ARROWS / WASD: MOVE & CLIMB  •  SPACE: JUMP", LOGICAL_W * 0.5, 384);
+          ctx.fillText("P: PAUSE  •  M: MUTE", LOGICAL_W * 0.5, 401);
+        }
+
+        function drawPauseOverlay() {
+          ctx.fillStyle = "rgba(5, 5, 14, 0.72)";
+          ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = "#00e5ff";
+          ctx.font = "900 36px ui-monospace, monospace";
+          ctx.fillText("PAUSED", LOGICAL_W * 0.5, LOGICAL_H * 0.45);
+          ctx.fillStyle = "#ffd166";
+          ctx.font = "800 14px ui-monospace, monospace";
+          ctx.fillText("PRESS P OR TAP TO RESUME", LOGICAL_W * 0.5, LOGICAL_H * 0.53);
+        }
+
+        function drawStageClearOverlay() {
+          ctx.fillStyle = "rgba(6, 5, 16, 0.65)";
+          ctx.fillRect(48, 210, LOGICAL_W - 96, 128);
+          ctx.strokeStyle = "#38ef7d";
+          ctx.lineWidth = 3;
+          ctx.strokeRect(48, 210, LOGICAL_W - 96, 128);
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = "#38ef7d";
+          ctx.font = "900 28px ui-monospace, monospace";
+          ctx.fillText(`STAGE ${stage} CLEAR!`, LOGICAL_W * 0.5, 250);
+          ctx.fillStyle = "#ffd166";
+          ctx.font = "800 15px ui-monospace, monospace";
+          ctx.fillText(`BONUS AWARDED: +${bonus}`, LOGICAL_W * 0.5, 290);
+          ctx.fillStyle = "#ffffff";
+          ctx.font = "700 12px ui-monospace, monospace";
+          ctx.fillText("GET READY FOR NEXT TOWER...", LOGICAL_W * 0.5, 316);
+        }
+
+        function drawGameOverOverlay() {
+          ctx.fillStyle = "rgba(6, 5, 16, 0.82)";
+          ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          ctx.fillStyle = "#ff4d6d";
+          ctx.font = "900 42px ui-monospace, monospace";
+          ctx.fillText("GAME OVER", LOGICAL_W * 0.5, 195);
+
+          if (isNewHighScore) {
+            ctx.fillStyle = "#ffd166";
+            ctx.font = "900 18px ui-monospace, monospace";
+            ctx.fillText("★ NEW HIGH SCORE! ★", LOGICAL_W * 0.5, 245);
+          }
+
+          ctx.fillStyle = "#ffffff";
+          ctx.font = "900 20px ui-monospace, monospace";
+          ctx.fillText(`FINAL SCORE: ${score}`, LOGICAL_W * 0.5, 290);
+
+          ctx.fillStyle = "#00e5ff";
+          ctx.font = "800 15px ui-monospace, monospace";
+          ctx.fillText(`HIGH SCORE: ${highScore}`, LOGICAL_W * 0.5, 326);
+          ctx.fillText(`REACHED STAGE ${stage}`, LOGICAL_W * 0.5, 354);
+
+          if (Math.floor(elapsedTime * 2.6) % 2 === 0) {
+            ctx.fillStyle = "#ffd166";
+            ctx.font = "900 15px ui-monospace, monospace";
+            ctx.fillText("PRESS SPACE / ENTER OR TAP TO RETRY", LOGICAL_W * 0.5, 412);
+          }
+        }
+
+        function render() {
+          const theme = THEMES[(stage - 1) % THEMES.length];
+          drawBackground(theme);
+          drawGirders(theme);
+          drawLadders(theme);
+          drawBarrelStack();
+          drawOilDrum();
+          drawRescuePod();
+          drawMallets();
+          drawCrusherBot();
+          drawBarrels();
+          drawFireSparks();
+          drawPlayer();
+          drawParticlesAndPopups();
+          drawHUD(theme);
+          drawScanlines();
+
+          if (gameState === STATE.ATTRACT) {
+            drawAttractOverlay();
+          } else if (gameState === STATE.PAUSED) {
+            drawPauseOverlay();
+          } else if (gameState === STATE.STAGE_CLEAR) {
+            drawStageClearOverlay();
+          } else if (gameState === STATE.GAMEOVER) {
+            drawGameOverOverlay();
+          }
+        }
+
+        // =========================================================================
+        // 11. MAIN ANIMATION LOOP (Clamped Delta Time)
+        // =========================================================================
+        let lastTime = performance.now();
+
+        function loop(now) {
+          const rawDt = (now - lastTime) / 1000;
+          lastTime = now;
+          const dt = Math.min(Math.max(rawDt, 0), 0.05);
+
+          update(dt);
+          render();
+          requestAnimationFrame(loop);
+        }
+
+        // Boot immediately into Attract Mode
+        setupStage(1, true);
+        updateUIControls();
+        requestAnimationFrame(loop);
+      })();
+    </script>
+  </body>
+</html>
