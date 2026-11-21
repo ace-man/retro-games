@@ -1,0 +1,1618 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Slang</title>
+    <meta name="description" content="Guide a glowing neon serpent through a retro arcade grid, devouring fruit and dodging your own growing tail." />
+    <meta name="game:genre" content="Arcade" />
+    <meta name="game:tags" content="snake, classic, 1-player, keyboard, endless" />
+    <meta name="game:added" content="2026-11-21" />
+    <meta name="game:year" content="1976" />
+    <meta name="game:controls" content="Arrow keys, WASD, or swipe to steer, Space to start, P to pause, M to mute" />
+    <meta name="game:author" content="Arcade Bot" />
+    <meta name="game:color" content="#39ff14" />
+    <style>
+      /* Full-viewport zero-scrollbar obsidian cabinet layout */
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #050a07;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      }
+
+      #stageWrap {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 50% 42%, #0c1f14 0%, #050a07 74%);
+      }
+
+      #gameCanvas {
+        display: block;
+        border-radius: 8px;
+        box-shadow:
+          0 0 32px rgba(57, 255, 20, 0.16),
+          0 0 0 1.5px rgba(57, 255, 20, 0.28);
+        background: #050c08;
+      }
+
+      /* Compact top-right utility buttons (Mute / Pause) */
+      #topControls {
+        position: fixed;
+        top: max(8px, env(safe-area-inset-top));
+        right: max(8px, env(safe-area-inset-right));
+        display: flex;
+        gap: 6px;
+        z-index: 20;
+      }
+
+      .util-btn {
+        background: rgba(6, 18, 11, 0.78);
+        border: 1.5px solid rgba(57, 255, 20, 0.55);
+        color: #d9ffe0;
+        border-radius: 8px;
+        padding: 5px 9px;
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        cursor: pointer;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+        transition: transform 0.08s ease, background 0.12s ease;
+      }
+
+      .util-btn:hover {
+        background: rgba(57, 255, 20, 0.22);
+      }
+
+      .util-btn:active {
+        transform: scale(0.94);
+      }
+
+      /* Unobtrusive on-screen D-pad for coarse-pointer / touch screens */
+      #touchControls {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        display: none;
+        z-index: 15;
+      }
+
+      #touchControls.visible.playing-touch {
+        display: block;
+      }
+
+      .dpad {
+        position: absolute;
+        left: 50%;
+        bottom: max(10px, env(safe-area-inset-bottom));
+        transform: translateX(-50%);
+        display: grid;
+        grid-template-columns: repeat(3, clamp(46px, 13vw, 58px));
+        grid-template-rows: repeat(3, clamp(44px, 12vw, 54px));
+        gap: 5px;
+        pointer-events: none;
+      }
+
+      /* In landscape on touch devices, dock D-pad to bottom-right so playfield stays centered */
+      @media (orientation: landscape) and (max-height: 540px) {
+        .dpad {
+          left: auto;
+          right: max(14px, env(safe-area-inset-right));
+          bottom: max(12px, env(safe-area-inset-bottom));
+          transform: none;
+          grid-template-columns: repeat(3, 44px);
+          grid-template-rows: repeat(3, 42px);
+        }
+      }
+
+      .touch-btn {
+        pointer-events: auto;
+        border-radius: 12px;
+        border: 1.5px solid rgba(57, 255, 20, 0.62);
+        background: rgba(6, 20, 12, 0.56);
+        color: #39ff14;
+        font-family: inherit;
+        font-size: clamp(16px, 4.5vw, 22px);
+        font-weight: 900;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 12px rgba(57, 255, 20, 0.18), inset 0 0 8px rgba(57, 255, 20, 0.12);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        transition: transform 0.06s ease, background 0.06s ease;
+        padding: 0;
+        outline: none;
+      }
+
+      .touch-btn.active {
+        transform: scale(0.91);
+        background: rgba(57, 255, 20, 0.34);
+        border-color: #ffffff;
+        color: #ffffff;
+      }
+
+      .dpad-up    { grid-column: 2; grid-row: 1; }
+      .dpad-left  { grid-column: 1; grid-row: 2; }
+      .dpad-right { grid-column: 3; grid-row: 2; }
+      .dpad-down  { grid-column: 2; grid-row: 3; }
+
+      @media (pointer: coarse) {
+        #touchControls.playing-touch {
+          display: block;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stageWrap">
+      <canvas id="gameCanvas" aria-label="Slang Retro Arcade Snake Game"></canvas>
+    </div>
+
+    <!-- Compact Mute / Pause controls -->
+    <div id="topControls">
+      <button id="muteBtn" class="util-btn" type="button" aria-label="Toggle Mute">SFX: ON</button>
+      <button id="pauseBtn" class="util-btn" type="button" aria-label="Toggle Pause" style="display:none;">PAUSE</button>
+    </div>
+
+    <!-- On-screen D-pad for touch devices -->
+    <div id="touchControls" aria-hidden="true">
+      <div class="dpad">
+        <button id="btnUp" class="touch-btn dpad-up" type="button" aria-label="Steer Up">&#9650;</button>
+        <button id="btnLeft" class="touch-btn dpad-left" type="button" aria-label="Steer Left">&#9664;</button>
+        <button id="btnRight" class="touch-btn dpad-right" type="button" aria-label="Steer Right">&#9654;</button>
+        <button id="btnDown" class="touch-btn dpad-down" type="button" aria-label="Steer Down">&#9660;</button>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        "use strict";
+
+        // =========================================================================
+        // 1. CONSTANTS & CONFIGURATION
+        // =========================================================================
+        const GRID_SIZE = 20;
+        const HIGHSCORE_KEY = "slang:highscore";
+
+        // Logical canvas proportions: compact HUD header + square 20x20 grid
+        const HUD_H = 54;
+        const PAD = 12;
+        const BOARD_PX = 480; // 24px per cell at 1x logical scale
+        const LOGICAL_W = BOARD_PX + PAD * 2;
+        const LOGICAL_H = HUD_H + BOARD_PX + PAD;
+        const CELL = BOARD_PX / GRID_SIZE;
+
+        // Pacing constants (tiles per second)
+        const BASE_TPS = 7.5;
+        const MAX_TPS = 15.0;
+        const TPS_PER_APPLE = 0.24;
+        const BONUS_EVERY = 5;
+        const BONUS_DURATION = 7.0; // seconds
+
+        const STATE = {
+          ATTRACT: "ATTRACT",
+          PLAYING: "PLAYING",
+          PAUSED: "PAUSED",
+          GAMEOVER: "GAMEOVER"
+        };
+
+        const MODE = {
+          CLASSIC: "CLASSIC", // Solid neon border walls
+          WRAP: "WRAP"        // Portal wrap-around edges
+        };
+
+        const DIRS = {
+          UP:    { x: 0, y: -1 },
+          DOWN:  { x: 0, y: 1 },
+          LEFT:  { x: -1, y: 0 },
+          RIGHT: { x: 1, y: 0 }
+        };
+
+        // =========================================================================
+        // 2. SAFE LOCALSTORAGE PERSISTENCE
+        // =========================================================================
+        function loadHighScore() {
+          try {
+            const val = parseInt(window.localStorage.getItem(HIGHSCORE_KEY), 10);
+            return Number.isFinite(val) && val > 0 ? val : 0;
+          } catch (_) {
+            return 0;
+          }
+        }
+
+        function saveHighScore(val) {
+          try {
+            window.localStorage.setItem(HIGHSCORE_KEY, String(Math.floor(val)));
+          } catch (_) {
+            // Ignore storage errors in sandboxed iframes
+          }
+        }
+
+        // =========================================================================
+        // 3. CANVAS SETUP & DEVICE-PIXEL-RATIO RESPONSIVE SCALING
+        // =========================================================================
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d", { alpha: false });
+        const touchControls = document.getElementById("touchControls");
+        const muteBtn = document.getElementById("muteBtn");
+        const pauseBtn = document.getElementById("pauseBtn");
+
+        let dpr = Math.min(window.devicePixelRatio || 1, 2);
+        let isTouchDevice = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+
+        function resizeCanvas() {
+          const vw = Math.max(1, window.innerWidth);
+          const vh = Math.max(1, window.innerHeight);
+
+          // Leave comfortable vertical room for touch D-pad in portrait mode while playing
+          const reserveBottom =
+            isTouchDevice && gameState === STATE.PLAYING && vh > vw && vh >= 480 ? 156 : 8;
+          const availW = Math.max(120, vw - 8);
+          const availH = Math.max(120, vh - reserveBottom);
+
+          const aspect = LOGICAL_W / LOGICAL_H;
+          let cssW = availW;
+          let cssH = cssW / aspect;
+          if (cssH > availH) {
+            cssH = availH;
+            cssW = cssH * aspect;
+          }
+
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.style.width = `${Math.floor(cssW)}px`;
+          canvas.style.height = `${Math.floor(cssH)}px`;
+          canvas.width = Math.max(1, Math.floor(cssW * dpr));
+          canvas.height = Math.max(1, Math.floor(cssH * dpr));
+
+          const scaleX = canvas.width / LOGICAL_W;
+          const scaleY = canvas.height / LOGICAL_H;
+          ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+        }
+
+        window.addEventListener("resize", resizeCanvas);
+
+        // =========================================================================
+        // 4. WEB AUDIO API RETRO SYNTH (Lazy-initialized on first user gesture)
+        // =========================================================================
+        class RetroSynth {
+          constructor() {
+            this.ctx = null;
+            this.master = null;
+            this.muted = false;
+            this.initialized = false;
+          }
+
+          init() {
+            if (this.initialized) {
+              if (this.ctx && this.ctx.state === "suspended") {
+                this.ctx.resume().catch(() => {});
+              }
+              return;
+            }
+            try {
+              const AudioCtx = window.AudioContext || window.webkitAudioContext;
+              if (!AudioCtx) return;
+              this.ctx = new AudioCtx();
+              this.master = this.ctx.createGain();
+              this.master.gain.value = this.muted ? 0 : 0.32;
+              this.master.connect(this.ctx.destination);
+              this.initialized = true;
+            } catch (_) {
+              // Audio unavailable
+            }
+          }
+
+          setMuted(m) {
+            this.muted = m;
+            muteBtn.textContent = this.muted ? "SFX: OFF" : "SFX: ON";
+            if (this.master && this.ctx) {
+              this.master.gain.setTargetAtTime(this.muted ? 0 : 0.32, this.ctx.currentTime, 0.02);
+            }
+          }
+
+          toggleMute() {
+            this.setMuted(!this.muted);
+          }
+
+          tone(type, fStart, fEnd, dur, vol = 0.25, delay = 0) {
+            if (!this.initialized || !this.ctx || this.muted) return;
+            const now = this.ctx.currentTime + delay;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(fStart, now);
+            if (fEnd !== fStart) {
+              osc.frequency.exponentialRampToValueAtTime(Math.max(30, fEnd), now + dur);
+            }
+            gain.gain.setValueAtTime(0.001, now);
+            gain.gain.linearRampToValueAtTime(vol, now + 0.008);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+            osc.connect(gain);
+            gain.connect(this.master);
+            osc.start(now);
+            osc.stop(now + dur + 0.02);
+          }
+
+          playTurn() {
+            this.tone("triangle", 280, 210, 0.032, 0.09);
+          }
+
+          playEat() {
+            this.tone("square", 440, 680, 0.075, 0.2);
+            this.tone("triangle", 660, 880, 0.07, 0.16, 0.04);
+          }
+
+          playBonus() {
+            const notes = [587.33, 739.99, 880, 1174.66];
+            notes.forEach((f, i) => this.tone("square", f, f, 0.09, 0.2, i * 0.055));
+          }
+
+          playSpeedUp() {
+            const notes = [392.0, 523.25, 659.25, 783.99];
+            notes.forEach((f, i) => this.tone("triangle", f, f * 1.02, 0.08, 0.22, i * 0.05));
+          }
+
+          playStart() {
+            const notes = [329.63, 440, 659.25];
+            notes.forEach((f, i) => this.tone("square", f, f, 0.09, 0.18, i * 0.055));
+          }
+
+          playToggle() {
+            this.tone("sine", 520, 660, 0.05, 0.14);
+          }
+
+          playGameOver() {
+            const notes = [392, 349.23, 311.13, 261.63, 196.0, 130.81];
+            notes.forEach((f, i) => this.tone("sawtooth", f, f * 0.9, 0.12, 0.22, i * 0.085));
+          }
+        }
+
+        const audio = new RetroSynth();
+
+        // =========================================================================
+        // 5. GAME STATE & ENTITIES
+        // =========================================================================
+        let gameState = STATE.ATTRACT;
+        let gameMode = MODE.CLASSIC;
+        let score = 0;
+        let highScore = loadHighScore();
+        let isNewRecord = false;
+        let applesEaten = 0;
+        let speedLevel = 1;
+
+        let snake = [];
+        let prevSnake = [];
+        let dir = { x: 1, y: 0 };
+        let dirQueue = []; // 2-step turn buffer
+
+        let apple = { x: 14, y: 10 };
+        let bonusFruit = null; // { x, y, timer, maxTimer }
+
+        let particles = [];
+        let popups = [];
+        let tickAccumulator = 0;
+        let elapsedTime = 0;
+        let shakeTimer = 0;
+        let eatFlashTimer = 0;
+
+        // Interactive canvas hitboxes for title/game-over mode toggle pill
+        const modePillRect = {
+          x: LOGICAL_W * 0.5 - 118,
+          y: HUD_H + BOARD_PX * 0.56 - 20,
+          w: 236,
+          h: 40
+        };
+
+        // =========================================================================
+        // 6. INITIALIZATION & SPAWNING
+        // =========================================================================
+        function isCellOccupied(x, y) {
+          for (let i = 0; i < snake.length; i++) {
+            if (snake[i].x === x && snake[i].y === y) return true;
+          }
+          if (apple && apple.x === x && apple.y === y) return true;
+          if (bonusFruit && bonusFruit.x === x && bonusFruit.y === y) return true;
+          return false;
+        }
+
+        function findFreeCell() {
+          const free = [];
+          for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+              if (!isCellOccupied(x, y)) {
+                free.push({ x, y });
+              }
+            }
+          }
+          if (free.length === 0) return null;
+          return free[Math.floor(Math.random() * free.length)];
+        }
+
+        function spawnApple() {
+          apple = null;
+          const cell = findFreeCell();
+          apple = cell ? cell : { x: 0, y: 0 };
+        }
+
+        function spawnBonusFruit() {
+          const cell = findFreeCell();
+          if (cell) {
+            bonusFruit = {
+              x: cell.x,
+              y: cell.y,
+              timer: BONUS_DURATION,
+              maxTimer: BONUS_DURATION
+            };
+          }
+        }
+
+        function resetRound(isAttract = false) {
+          const cx = 8;
+          const cy = 10;
+          snake = [
+            { x: cx, y: cy },
+            { x: cx - 1, y: cy },
+            { x: cx - 2, y: cy },
+            { x: cx - 3, y: cy }
+          ];
+          prevSnake = snake.map((s) => ({ x: s.x, y: s.y }));
+          dir = { x: 1, y: 0 };
+          dirQueue = [];
+          tickAccumulator = 0;
+          bonusFruit = null;
+          particles = [];
+          popups = [];
+          shakeTimer = 0;
+          eatFlashTimer = 0;
+
+          if (!isAttract) {
+            score = 0;
+            isNewRecord = false;
+            applesEaten = 0;
+            speedLevel = 1;
+          } else {
+            applesEaten = 0;
+            speedLevel = 1;
+          }
+          spawnApple();
+        }
+
+        function currentTPS() {
+          if (gameState === STATE.ATTRACT) return 8.5;
+          return Math.min(MAX_TPS, BASE_TPS + applesEaten * TPS_PER_APPLE);
+        }
+
+        function updateUIControls() {
+          const inActive = gameState === STATE.PLAYING || gameState === STATE.PAUSED;
+          pauseBtn.style.display = inActive ? "inline-block" : "none";
+          pauseBtn.textContent = gameState === STATE.PAUSED ? "RESUME" : "PAUSE";
+
+          if (gameState === STATE.PLAYING) {
+            touchControls.classList.add("playing-touch");
+          } else {
+            touchControls.classList.remove("playing-touch");
+          }
+          resizeCanvas();
+        }
+
+        function setPaused(paused) {
+          if (gameState !== STATE.PLAYING && gameState !== STATE.PAUSED) return;
+          gameState = paused ? STATE.PAUSED : STATE.PLAYING;
+          updateUIControls();
+        }
+
+        function togglePause() {
+          if (gameState === STATE.PLAYING) setPaused(true);
+          else if (gameState === STATE.PAUSED) setPaused(false);
+        }
+
+        function toggleMode() {
+          gameMode = gameMode === MODE.CLASSIC ? MODE.WRAP : MODE.CLASSIC;
+          audio.playToggle();
+        }
+
+        function startNewGame() {
+          audio.init();
+          gameState = STATE.PLAYING;
+          resetRound(false);
+          updateUIControls();
+          audio.playStart();
+        }
+
+        // =========================================================================
+        // 7. 2-STEP INPUT QUEUE & CONTROLS (Keyboard, Swipe, D-Pad)
+        // =========================================================================
+        function queueDirection(nextDir) {
+          if (gameState !== STATE.PLAYING) return;
+          if (dirQueue.length >= 2) return;
+
+          const reference = dirQueue.length > 0 ? dirQueue[dirQueue.length - 1] : dir;
+          // Reject same direction or 180-degree reversal
+          if (
+            (nextDir.x === reference.x && nextDir.y === reference.y) ||
+            (nextDir.x === -reference.x && nextDir.y === -reference.y)
+          ) {
+            return;
+          }
+          dirQueue.push({ x: nextDir.x, y: nextDir.y });
+        }
+
+        window.addEventListener("keydown", (e) => {
+          const code = e.code;
+          if (
+            code === "ArrowUp" ||
+            code === "ArrowDown" ||
+            code === "ArrowLeft" ||
+            code === "ArrowRight" ||
+            code === "Space"
+          ) {
+            e.preventDefault();
+          }
+
+          audio.init();
+
+          if (code === "KeyM") {
+            audio.toggleMute();
+            return;
+          }
+
+          if (code === "KeyP" || code === "Escape") {
+            if (gameState === STATE.PLAYING || gameState === STATE.PAUSED) {
+              togglePause();
+            }
+            return;
+          }
+
+          if (gameState === STATE.ATTRACT || gameState === STATE.GAMEOVER) {
+            if (code === "Space" || code === "Enter") {
+              startNewGame();
+              return;
+            }
+            if (
+              code === "Tab" ||
+              code === "KeyC" ||
+              code === "ArrowLeft" ||
+              code === "ArrowRight" ||
+              code === "KeyA" ||
+              code === "KeyD"
+            ) {
+              e.preventDefault();
+              toggleMode();
+              return;
+            }
+            return;
+          }
+
+          if (gameState === STATE.PAUSED) {
+            if (code === "Space" || code === "Enter") {
+              setPaused(false);
+            }
+            return;
+          }
+
+          // Active gameplay directional input
+          if (code === "ArrowUp" || code === "KeyW") queueDirection(DIRS.UP);
+          else if (code === "ArrowDown" || code === "KeyS") queueDirection(DIRS.DOWN);
+          else if (code === "ArrowLeft" || code === "KeyA") queueDirection(DIRS.LEFT);
+          else if (code === "ArrowRight" || code === "KeyD") queueDirection(DIRS.RIGHT);
+        });
+
+        // Auto-pause on tab switch or window blur
+        window.addEventListener("blur", () => {
+          if (gameState === STATE.PLAYING) setPaused(true);
+        });
+
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden && gameState === STATE.PLAYING) {
+            setPaused(true);
+          }
+        });
+
+        // Utility buttons
+        muteBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          audio.init();
+          audio.toggleMute();
+        });
+
+        pauseBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          audio.init();
+          togglePause();
+        });
+
+        // Helper: convert client coordinates to logical canvas coordinates
+        function getCanvasPoint(clientX, clientY) {
+          const rect = canvas.getBoundingClientRect();
+          return {
+            x: ((clientX - rect.left) / Math.max(1, rect.width)) * LOGICAL_W,
+            y: ((clientY - rect.top) / Math.max(1, rect.height)) * LOGICAL_H
+          };
+        }
+
+        function isInsideRect(pt, r) {
+          return pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h;
+        }
+
+        // Low-latency swipe gesture + canvas tap handling
+        let swipeStartX = 0;
+        let swipeStartY = 0;
+        let swipeActive = false;
+        const SWIPE_THRESHOLD = 18;
+
+        canvas.addEventListener("pointerdown", (e) => {
+          audio.init();
+          if (e.pointerType === "touch") {
+            isTouchDevice = true;
+            touchControls.classList.add("visible");
+          }
+
+          const pt = getCanvasPoint(e.clientX, e.clientY);
+
+          if (gameState === STATE.ATTRACT || gameState === STATE.GAMEOVER) {
+            // Check if user tapped the WALLS / WRAP mode toggle pill
+            if (isInsideRect(pt, modePillRect)) {
+              toggleMode();
+              return;
+            }
+            startNewGame();
+            return;
+          }
+
+          if (gameState === STATE.PAUSED) {
+            setPaused(false);
+            return;
+          }
+
+          // Track swipe gesture during gameplay
+          swipeStartX = e.clientX;
+          swipeStartY = e.clientY;
+          swipeActive = true;
+        });
+
+        canvas.addEventListener("pointermove", (e) => {
+          if (!swipeActive || gameState !== STATE.PLAYING) return;
+          const dx = e.clientX - swipeStartX;
+          const dy = e.clientY - swipeStartY;
+          if (Math.abs(dx) < SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_THRESHOLD) return;
+
+          if (Math.abs(dx) > Math.abs(dy)) {
+            queueDirection(dx > 0 ? DIRS.RIGHT : DIRS.LEFT);
+          } else {
+            queueDirection(dy > 0 ? DIRS.DOWN : DIRS.UP);
+          }
+          // Re-anchor so continuous swiping without lifting finger works effortlessly
+          swipeStartX = e.clientX;
+          swipeStartY = e.clientY;
+        });
+
+        window.addEventListener("pointerup", () => {
+          swipeActive = false;
+        });
+        window.addEventListener("pointercancel", () => {
+          swipeActive = false;
+        });
+
+        // On-screen D-pad bindings
+        function bindDpadBtn(id, targetDir) {
+          const el = document.getElementById(id);
+          const press = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            audio.init();
+            isTouchDevice = true;
+            touchControls.classList.add("visible");
+            el.classList.add("active");
+            queueDirection(targetDir);
+          };
+          const release = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            el.classList.remove("active");
+          };
+          el.addEventListener("pointerdown", press);
+          el.addEventListener("pointerup", release);
+          el.addEventListener("pointercancel", release);
+          el.addEventListener("pointerleave", release);
+        }
+
+        bindDpadBtn("btnUp", DIRS.UP);
+        bindDpadBtn("btnDown", DIRS.DOWN);
+        bindDpadBtn("btnLeft", DIRS.LEFT);
+        bindDpadBtn("btnRight", DIRS.RIGHT);
+
+        // =========================================================================
+        // 8. PARTICLE & POPUP EFFECTS
+        // =========================================================================
+        function gridToPixelCenter(gx, gy) {
+          return {
+            x: PAD + (gx + 0.5) * CELL,
+            y: HUD_H + (gy + 0.5) * CELL
+          };
+        }
+
+        function spawnBurst(gx, gy, color, count = 14) {
+          const origin = gridToPixelCenter(gx, gy);
+          for (let i = 0; i < count; i++) {
+            const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.45;
+            const spd = 42 + Math.random() * 110;
+            particles.push({
+              x: origin.x,
+              y: origin.y,
+              vx: Math.cos(angle) * spd,
+              vy: Math.sin(angle) * spd,
+              life: 0.32 + Math.random() * 0.28,
+              maxLife: 0.6,
+              color,
+              size: 2.5 + Math.random() * 2.5
+            });
+          }
+        }
+
+        function spawnPopup(text, gx, gy, color = "#39ff14") {
+          const pos = gridToPixelCenter(gx, gy);
+          popups.push({
+            text,
+            x: Math.max(PAD + 28, Math.min(LOGICAL_W - PAD - 28, pos.x)),
+            y: pos.y - 6,
+            color,
+            life: 0.85,
+            maxLife: 0.85
+          });
+        }
+
+        // =========================================================================
+        // 9. ATTRACT MODE AUTONOMOUS AI
+        // =========================================================================
+        function isSafeForAI(nx, ny, bodySet) {
+          if (gameMode === MODE.CLASSIC) {
+            if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) return false;
+          }
+          const wx = (nx + GRID_SIZE) % GRID_SIZE;
+          const wy = (ny + GRID_SIZE) % GRID_SIZE;
+          return !bodySet.has(`${wx},${wy}`);
+        }
+
+        function chooseAttractDirection() {
+          const head = snake[0];
+          const target = bonusFruit || apple;
+          const bodySet = new Set();
+          // Exclude tail tip since it vacates next tick
+          for (let i = 0; i < snake.length - 1; i++) {
+            bodySet.add(`${snake[i].x},${snake[i].y}`);
+          }
+
+          const candidates = [DIRS.UP, DIRS.DOWN, DIRS.LEFT, DIRS.RIGHT].filter(
+            (d) => !(d.x === -dir.x && d.y === -dir.y)
+          );
+
+          let bestDir = dir;
+          let bestScore = -Infinity;
+
+          for (let i = 0; i < candidates.length; i++) {
+            const c = candidates[i];
+            const nx = head.x + c.x;
+            const ny = head.y + c.y;
+            if (!isSafeForAI(nx, ny, bodySet)) continue;
+
+            const wx = (nx + GRID_SIZE) % GRID_SIZE;
+            const wy = (ny + GRID_SIZE) % GRID_SIZE;
+
+            // Count free neighbors from candidate cell to avoid dead-ends
+            let freeNeighbors = 0;
+            const checkDirs = [DIRS.UP, DIRS.DOWN, DIRS.LEFT, DIRS.RIGHT];
+            for (let k = 0; k < 4; k++) {
+              const nnx = wx + checkDirs[k].x;
+              const nny = wy + checkDirs[k].y;
+              if (isSafeForAI(nnx, nny, bodySet)) freeNeighbors++;
+            }
+
+            // Distance to target fruit
+            let dx = Math.abs(wx - target.x);
+            let dy = Math.abs(wy - target.y);
+            if (gameMode === MODE.WRAP) {
+              dx = Math.min(dx, GRID_SIZE - dx);
+              dy = Math.min(dy, GRID_SIZE - dy);
+            }
+            const dist = dx + dy;
+
+            const scoreVal = -dist * 2.2 + freeNeighbors * 1.45 + (c.x === dir.x && c.y === dir.y ? 0.25 : 0);
+            if (scoreVal > bestScore) {
+              bestScore = scoreVal;
+              bestDir = c;
+            }
+          }
+
+          return bestDir;
+        }
+
+        // =========================================================================
+        // 10. FIXED-TIMESTEP SIMULATION TICK
+        // =========================================================================
+        function stepSimulation() {
+          // Snapshot previous positions for smooth sub-tick interpolation
+          prevSnake = snake.map((s) => ({ x: s.x, y: s.y }));
+
+          // Pull next direction from AI (Attract) or 2-step turn buffer (Playing)
+          if (gameState === STATE.ATTRACT) {
+            dir = chooseAttractDirection();
+          } else if (dirQueue.length > 0) {
+            const next = dirQueue.shift();
+            if (next.x !== dir.x || next.y !== dir.y) {
+              dir = next;
+              audio.playTurn();
+            }
+          }
+
+          const head = snake[0];
+          let nx = head.x + dir.x;
+          let ny = head.y + dir.y;
+
+          // Wall check or wrap-around
+          if (gameMode === MODE.CLASSIC) {
+            if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) {
+              handleCrash();
+              return;
+            }
+          } else {
+            nx = (nx + GRID_SIZE) % GRID_SIZE;
+            ny = (ny + GRID_SIZE) % GRID_SIZE;
+          }
+
+          // Determine if snake will grow this tick
+          const ateApple = apple && nx === apple.x && ny === apple.y;
+          const ateBonus = bonusFruit && nx === bonusFruit.x && ny === bonusFruit.y;
+          const willGrow = ateApple || ateBonus;
+
+          // Self-collision check (tail tip is safe if not growing)
+          const checkLen = willGrow ? snake.length : snake.length - 1;
+          for (let i = 0; i < checkLen; i++) {
+            if (snake[i].x === nx && snake[i].y === ny) {
+              handleCrash();
+              return;
+            }
+          }
+
+          // Advance head
+          snake.unshift({ x: nx, y: ny });
+
+          if (!willGrow) {
+            snake.pop();
+          } else {
+            // Duplicate last prevSnake entry so newly grown tail interpolates smoothly
+            const lastPrev = prevSnake[prevSnake.length - 1];
+            prevSnake.push({ x: lastPrev.x, y: lastPrev.y });
+          }
+
+          // Handle Apple pickup
+          if (ateApple) {
+            applesEaten += 1;
+            eatFlashTimer = 0.16;
+            spawnBurst(nx, ny, "#ff2a6d", 14);
+            spawnBurst(nx, ny, "#39ff14", 6);
+
+            if (gameState === STATE.PLAYING) {
+              const pts = 10;
+              score += pts;
+              if (score > highScore) {
+                highScore = score;
+                isNewRecord = true;
+                saveHighScore(highScore);
+              }
+              spawnPopup(`+${pts}`, nx, ny, "#39ff14");
+
+              const newLevel = 1 + Math.floor(applesEaten / 5);
+              if (newLevel > speedLevel) {
+                speedLevel = newLevel;
+                audio.playSpeedUp();
+                spawnPopup(`SPD ${speedLevel}!`, nx, Math.max(1, ny - 1), "#00f5d4");
+              } else {
+                audio.playEat();
+              }
+            } else if (snake.length > 26) {
+              // Keep attract-mode demo serpent brisk and lively
+              resetRound(true);
+              return;
+            }
+
+            spawnApple();
+
+            // Spawn timed Golden Bonus Fruit every 5 apples
+            if (applesEaten % BONUS_EVERY === 0 && !bonusFruit) {
+              spawnBonusFruit();
+            }
+          }
+
+          // Handle Golden Bonus Fruit pickup
+          if (ateBonus) {
+            const bonusPts = 30 + Math.ceil((bonusFruit.timer / bonusFruit.maxTimer) * 70);
+            eatFlashTimer = 0.24;
+            spawnBurst(nx, ny, "#ffd700", 20);
+            spawnBurst(nx, ny, "#ffffff", 10);
+
+            if (gameState === STATE.PLAYING) {
+              score += bonusPts;
+              if (score > highScore) {
+                highScore = score;
+                isNewRecord = true;
+                saveHighScore(highScore);
+              }
+              spawnPopup(`+${bonusPts}`, nx, ny, "#ffd700");
+              audio.playBonus();
+            }
+            bonusFruit = null;
+          }
+        }
+
+        function handleCrash() {
+          const head = snake[0];
+          spawnBurst(head.x, head.y, "#ff2a6d", 22);
+          spawnBurst(head.x, head.y, "#39ff14", 14);
+
+          if (gameState === STATE.ATTRACT) {
+            resetRound(true);
+            return;
+          }
+
+          shakeTimer = 0.34;
+          gameState = STATE.GAMEOVER;
+          if (score > highScore) {
+            highScore = score;
+            isNewRecord = true;
+            saveHighScore(highScore);
+          }
+          audio.playGameOver();
+          updateUIControls();
+        }
+
+        // =========================================================================
+        // 11. MAIN UPDATE LOOP (Clamped Delta Time)
+        // =========================================================================
+        function update(dt) {
+          elapsedTime += dt;
+
+          if (shakeTimer > 0) shakeTimer = Math.max(0, shakeTimer - dt);
+          if (eatFlashTimer > 0) eatFlashTimer = Math.max(0, eatFlashTimer - dt);
+
+          // Update particles & floating popups even during brief game-over settle
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vx *= Math.pow(0.08, dt);
+            p.vy *= Math.pow(0.08, dt);
+            p.life -= dt;
+            if (p.life <= 0) particles.splice(i, 1);
+          }
+
+          for (let i = popups.length - 1; i >= 0; i--) {
+            const pop = popups[i];
+            pop.y -= 32 * dt;
+            pop.life -= dt;
+            if (pop.life <= 0) popups.splice(i, 1);
+          }
+
+          if (gameState !== STATE.PLAYING && gameState !== STATE.ATTRACT) {
+            return;
+          }
+
+          // Timed Golden Bonus Fruit countdown
+          if (bonusFruit) {
+            bonusFruit.timer -= dt;
+            if (bonusFruit.timer <= 0) {
+              spawnBurst(bonusFruit.x, bonusFruit.y, "rgba(255, 215, 0, 0.7)", 8);
+              bonusFruit = null;
+            }
+          }
+
+          // Fixed-timestep tick accumulator
+          const stepTime = 1 / currentTPS();
+          tickAccumulator += dt;
+          while (tickAccumulator >= stepTime) {
+            tickAccumulator -= stepTime;
+            stepSimulation();
+            if (gameState !== STATE.PLAYING && gameState !== STATE.ATTRACT) {
+              tickAccumulator = 0;
+              break;
+            }
+          }
+        }
+
+        // =========================================================================
+        // 12. CANVAS RENDERING (Interpolated Serpent, Fruit, HUD, & Overlays)
+        // =========================================================================
+        function lerpCoord(prev, curr, t) {
+          // Handle portal wrap-around cleanly without streaking across the board
+          if (Math.abs(curr - prev) > 1) {
+            return curr;
+          }
+          return prev + (curr - prev) * t;
+        }
+
+        function drawHUD() {
+          // Compact docked HUD bar above the grid
+          ctx.fillStyle = "#040a07";
+          ctx.fillRect(0, 0, LOGICAL_W, HUD_H);
+
+          // Bottom neon accent line
+          ctx.fillStyle = gameMode === MODE.WRAP ? "rgba(0, 245, 212, 0.45)" : "rgba(57, 255, 20, 0.45)";
+          ctx.fillRect(PAD, HUD_H - 2, BOARD_PX, 1.5);
+
+          ctx.textBaseline = "top";
+
+          // Left: Score
+          ctx.textAlign = "left";
+          ctx.fillStyle = "#39ff14";
+          ctx.font = "800 10px ui-monospace, monospace";
+          ctx.fillText("SCORE", PAD + 2, 7);
+          ctx.fillStyle = "#f0fff4";
+          ctx.font = "900 20px ui-monospace, monospace";
+          ctx.fillText(String(score).padStart(5, "0"), PAD + 2, 20);
+
+          // Center: High Score
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#00f5d4";
+          ctx.font = "800 10px ui-monospace, monospace";
+          ctx.fillText("HIGH SCORE", LOGICAL_W * 0.5, 7);
+          ctx.fillStyle = "#ffd700";
+          ctx.font = "900 20px ui-monospace, monospace";
+          ctx.fillText(String(highScore).padStart(5, "0"), LOGICAL_W * 0.5, 20);
+
+          // Right: Length & Speed Level (with subtle Mode tag)
+          ctx.textAlign = "right";
+          ctx.fillStyle = gameMode === MODE.WRAP ? "#00f5d4" : "#86efac";
+          ctx.font = "800 10px ui-monospace, monospace";
+          const modeLabel = gameMode === MODE.WRAP ? "WRAP" : "WALLS";
+          ctx.fillText(`${modeLabel} • LV ${speedLevel}`, LOGICAL_W - PAD - 2, 7);
+          ctx.fillStyle = "#d9ffe0";
+          ctx.font = "900 18px ui-monospace, monospace";
+          ctx.fillText(`LEN ${String(snake.length).padStart(2, "0")}`, LOGICAL_W - PAD - 2, 21);
+
+          // Tiny bonus timer bar tucked into HUD bottom if Golden Bonus Fruit is active
+          if (bonusFruit) {
+            const frac = Math.max(0, bonusFruit.timer / bonusFruit.maxTimer);
+            const barW = BOARD_PX * frac;
+            ctx.fillStyle = "#ffd700";
+            ctx.fillRect(PAD + (BOARD_PX - barW) * 0.5, HUD_H - 4, barW, 3);
+          }
+        }
+
+        function drawPlayfield() {
+          // Obsidian-green playfield fill
+          ctx.fillStyle = "#06110b";
+          ctx.fillRect(PAD, HUD_H, BOARD_PX, BOARD_PX);
+
+          // Subtle eat-flash glow on playfield
+          if (eatFlashTimer > 0) {
+            ctx.fillStyle = `rgba(57, 255, 20, ${(eatFlashTimer * 0.35).toFixed(3)})`;
+            ctx.fillRect(PAD, HUD_H, BOARD_PX, BOARD_PX);
+          }
+
+          // Subtle glowing grid lines
+          ctx.strokeStyle = "rgba(57, 255, 20, 0.085)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          for (let i = 1; i < GRID_SIZE; i++) {
+            const gx = PAD + i * CELL + 0.5;
+            const gy = HUD_H + i * CELL + 0.5;
+            ctx.moveTo(gx, HUD_H);
+            ctx.lineTo(gx, HUD_H + BOARD_PX);
+            ctx.moveTo(PAD, gy);
+            ctx.lineTo(PAD + BOARD_PX, gy);
+          }
+          ctx.stroke();
+
+          // Subtle grid intersection dots
+          ctx.fillStyle = "rgba(57, 255, 20, 0.16)";
+          for (let y = 1; y < GRID_SIZE; y++) {
+            for (let x = 1; x < GRID_SIZE; x++) {
+              ctx.fillRect(PAD + x * CELL - 0.5, HUD_H + y * CELL - 0.5, 1.5, 1.5);
+            }
+          }
+
+          // Border frame: solid neon green in CLASSIC, dashed cyan portal in WRAP
+          ctx.save();
+          if (gameMode === MODE.WRAP) {
+            ctx.setLineDash([8, 8]);
+            ctx.lineDashOffset = -elapsedTime * 18;
+            ctx.strokeStyle = "#00f5d4";
+            ctx.shadowColor = "#00f5d4";
+            ctx.shadowBlur = 10;
+          } else {
+            ctx.strokeStyle = "#39ff14";
+            ctx.shadowColor = "#39ff14";
+            ctx.shadowBlur = 12;
+          }
+          ctx.lineWidth = 2.5;
+          ctx.strokeRect(PAD + 1, HUD_H + 1, BOARD_PX - 2, BOARD_PX - 2);
+          ctx.restore();
+        }
+
+        function drawApple() {
+          if (!apple) return;
+          const pos = gridToPixelCenter(apple.x, apple.y);
+          const pulse = 1 + Math.sin(elapsedTime * 7) * 0.09;
+          const r = CELL * 0.36 * pulse;
+
+          ctx.save();
+          ctx.translate(pos.x, pos.y);
+
+          // Outer crimson-magenta glow
+          const glow = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r * 2.1);
+          glow.addColorStop(0, "rgba(255, 42, 109, 0.55)");
+          glow.addColorStop(1, "rgba(255, 42, 109, 0)");
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(0, 0, r * 2.1, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Apple body
+          ctx.fillStyle = "#ff2a6d";
+          ctx.beginPath();
+          ctx.arc(0, 1, r, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Specular highlight
+          ctx.fillStyle = "#ff9ebb";
+          ctx.beginPath();
+          ctx.arc(-r * 0.32, -r * 0.25, r * 0.28, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Tiny neon leaf
+          ctx.fillStyle = "#39ff14";
+          ctx.beginPath();
+          ctx.ellipse(r * 0.28, -r * 0.85, r * 0.38, r * 0.2, -0.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.restore();
+        }
+
+        function drawBonusFruit() {
+          if (!bonusFruit) return;
+          const pos = gridToPixelCenter(bonusFruit.x, bonusFruit.y);
+          const frac = Math.max(0, bonusFruit.timer / bonusFruit.maxTimer);
+          const flash = bonusFruit.timer < 2.0 && Math.floor(elapsedTime * 14) % 2 === 0;
+          const spin = elapsedTime * 2.8;
+          const r = CELL * 0.42;
+
+          ctx.save();
+          ctx.translate(pos.x, pos.y);
+
+          // Shrinking golden ring timer around the fruit
+          ctx.strokeStyle = frac < 0.3 ? "#ff2a6d" : "#ffd700";
+          ctx.lineWidth = 2.2;
+          ctx.beginPath();
+          ctx.arc(0, 0, CELL * 0.62, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+          ctx.stroke();
+
+          // Outer golden halo
+          const halo = ctx.createRadialGradient(0, 0, 2, 0, 0, r * 2.2);
+          halo.addColorStop(0, "rgba(255, 215, 0, 0.5)");
+          halo.addColorStop(1, "rgba(255, 215, 0, 0)");
+          ctx.fillStyle = halo;
+          ctx.beginPath();
+          ctx.arc(0, 0, r * 2.2, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Rotating 4-point star / diamond berry
+          ctx.rotate(spin);
+          ctx.fillStyle = flash ? "#ffffff" : "#ffd700";
+          ctx.beginPath();
+          for (let i = 0; i < 8; i++) {
+            const rad = i % 2 === 0 ? r : r * 0.46;
+            const ang = (i * Math.PI) / 4;
+            const px = Math.cos(ang) * rad;
+            const py = Math.sin(ang) * rad;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = "#fff9db";
+          ctx.beginPath();
+          ctx.arc(0, 0, r * 0.25, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.restore();
+        }
+
+        function drawRoundedRect(x, y, w, h, r) {
+          ctx.beginPath();
+          ctx.moveTo(x + r, y);
+          ctx.arcTo(x + w, y, x + w, y + h, r);
+          ctx.arcTo(x + w, y + h, x, y + h, r);
+          ctx.arcTo(x, y + h, x, y, r);
+          ctx.arcTo(x, y, x + w, y, r);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        function drawSnake() {
+          if (snake.length === 0) return;
+
+          const stepTime = 1 / currentTPS();
+          const interp =
+            gameState === STATE.PLAYING || gameState === STATE.ATTRACT
+              ? Math.max(0, Math.min(1, tickAccumulator / stepTime))
+              : 1;
+
+          // Compute interpolated pixel center for every segment
+          const pts = [];
+          for (let i = 0; i < snake.length; i++) {
+            const curr = snake[i];
+            const prev = prevSnake[i] || curr;
+            const gx = lerpCoord(prev.x, curr.x, interp);
+            const gy = lerpCoord(prev.y, curr.y, interp);
+            pts.push({
+              x: PAD + (gx + 0.5) * CELL,
+              y: HUD_H + (gy + 0.5) * CELL
+            });
+          }
+
+          // Check if head is near any fruit for flickering forked tongue
+          const headGrid = snake[0];
+          let nearFruit = false;
+          if (apple) {
+            const d = Math.abs(headGrid.x - apple.x) + Math.abs(headGrid.y - apple.y);
+            if (d <= 3) nearFruit = true;
+          }
+          if (bonusFruit) {
+            const d = Math.abs(headGrid.x - bonusFruit.x) + Math.abs(headGrid.y - bonusFruit.y);
+            if (d <= 3) nearFruit = true;
+          }
+
+          // Draw forked tongue behind head when near fruit
+          if (nearFruit && Math.sin(elapsedTime * 26) > -0.25) {
+            const hp = pts[0];
+            const tx = hp.x + dir.x * (CELL * 0.5);
+            const ty = hp.y + dir.y * (CELL * 0.5);
+            const tipX = tx + dir.x * (CELL * 0.42);
+            const tipY = ty + dir.y * (CELL * 0.42);
+            const perpX = -dir.y;
+            const perpY = dir.x;
+
+            ctx.save();
+            ctx.strokeStyle = "#ff2a6d";
+            ctx.lineWidth = 2;
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            ctx.moveTo(tx, ty);
+            ctx.lineTo(tipX, tipY);
+            ctx.moveTo(tipX, tipY);
+            ctx.lineTo(tipX + (dir.x + perpX * 0.8) * 4, tipY + (dir.y + perpY * 0.8) * 4);
+            ctx.moveTo(tipX, tipY);
+            ctx.lineTo(tipX + (dir.x - perpX * 0.8) * 4, tipY + (dir.y - perpY * 0.8) * 4);
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          // Draw segments from tail to head so head sits crisply on top
+          for (let i = pts.length - 1; i >= 0; i--) {
+            const p = pts[i];
+            const ratio = i / Math.max(1, pts.length - 1);
+            // Smooth taper toward the tail tip
+            const sizeScale = i === 0 ? 0.92 : 0.88 - ratio * 0.34;
+            const segSize = CELL * sizeScale;
+            const half = segSize * 0.5;
+            const radius = i === 0 ? segSize * 0.34 : segSize * 0.3;
+
+            // Connect adjacent non-wrapped segments with a seamless bridge
+            if (i < pts.length - 1) {
+              const nextP = pts[i + 1];
+              const dist = Math.hypot(p.x - nextP.x, p.y - nextP.y);
+              if (dist < CELL * 1.6) {
+                ctx.strokeStyle = i % 2 === 0 ? "#24d612" : "#1cb810";
+                ctx.lineWidth = segSize * 0.84;
+                ctx.lineCap = "round";
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+                ctx.lineTo(nextP.x, nextP.y);
+                ctx.stroke();
+              }
+            }
+
+            // Segment body with subtle neon glow
+            ctx.save();
+            if (i === 0) {
+              ctx.shadowColor = "#39ff14";
+              ctx.shadowBlur = 14;
+              ctx.fillStyle = "#5cff3d";
+            } else {
+              ctx.shadowColor = "rgba(57, 255, 20, 0.35)";
+              ctx.shadowBlur = 6;
+              // Alternating neon emerald-lime scale bands
+              ctx.fillStyle = i % 2 === 0 ? "#39ff14" : "#1fe014";
+            }
+            drawRoundedRect(p.x - half, p.y - half, segSize, segSize, radius);
+
+            // Inner scale highlight
+            if (i > 0 && segSize > 10) {
+              ctx.shadowBlur = 0;
+              ctx.fillStyle = "rgba(220, 255, 215, 0.24)";
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, segSize * 0.16, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.restore();
+          }
+
+          // Directional eyes on the head
+          const hp = pts[0];
+          const perpX = -dir.y;
+          const perpY = dir.x;
+          const eyeForward = CELL * 0.14;
+          const eyeSpread = CELL * 0.21;
+          const eyeR = CELL * 0.125;
+
+          const e1x = hp.x + dir.x * eyeForward + perpX * eyeSpread;
+          const e1y = hp.y + dir.y * eyeForward + perpY * eyeSpread;
+          const e2x = hp.x + dir.x * eyeForward - perpX * eyeSpread;
+          const e2y = hp.y + dir.y * eyeForward - perpY * eyeSpread;
+
+          // Eye whites
+          ctx.fillStyle = "#ffffff";
+          ctx.beginPath();
+          ctx.arc(e1x, e1y, eyeR, 0, Math.PI * 2);
+          ctx.arc(e2x, e2y, eyeR, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Dark pupils shifted in movement direction
+          ctx.fillStyle = "#041208";
+          const pupOff = eyeR * 0.42;
+          ctx.beginPath();
+          ctx.arc(e1x + dir.x * pupOff, e1y + dir.y * pupOff, eyeR * 0.56, 0, Math.PI * 2);
+          ctx.arc(e2x + dir.x * pupOff, e2y + dir.y * pupOff, eyeR * 0.56, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        function drawParticlesAndPopups() {
+          for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+            ctx.fillStyle = p.color;
+            ctx.fillRect(p.x - p.size * 0.5, p.y - p.size * 0.5, p.size, p.size);
+          }
+          ctx.globalAlpha = 1;
+
+          ctx.font = "900 13px ui-monospace, monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          for (let i = 0; i < popups.length; i++) {
+            const pop = popups[i];
+            ctx.globalAlpha = Math.max(0, pop.life / pop.maxLife);
+            ctx.fillStyle = "#020805";
+            ctx.fillText(pop.text, pop.x + 1, pop.y + 1);
+            ctx.fillStyle = pop.color;
+            ctx.fillText(pop.text, pop.x, pop.y);
+          }
+          ctx.globalAlpha = 1;
+        }
+
+        function drawModeTogglePill() {
+          const r = modePillRect;
+          ctx.save();
+          ctx.fillStyle = "rgba(4, 16, 10, 0.88)";
+          drawRoundedRect(r.x, r.y, r.w, r.h, 10);
+          ctx.strokeStyle = "rgba(57, 255, 20, 0.55)";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          // Highlight active half
+          const halfW = r.w * 0.5 - 4;
+          const activeX = gameMode === MODE.CLASSIC ? r.x + 4 : r.x + r.w * 0.5;
+          ctx.fillStyle = gameMode === MODE.CLASSIC ? "rgba(57, 255, 20, 0.26)" : "rgba(0, 245, 212, 0.26)";
+          drawRoundedRect(activeX, r.y + 4, halfW, r.h - 8, 7);
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = "900 13px ui-monospace, monospace";
+          ctx.fillStyle = gameMode === MODE.CLASSIC ? "#39ff14" : "rgba(217, 255, 224, 0.55)";
+          ctx.fillText("WALLS", r.x + r.w * 0.25, r.y + r.h * 0.51);
+
+          ctx.fillStyle = gameMode === MODE.WRAP ? "#00f5d4" : "rgba(217, 255, 224, 0.55)";
+          ctx.fillText("WRAP", r.x + r.w * 0.75, r.y + r.h * 0.51);
+          ctx.restore();
+        }
+
+        function drawAttractOverlay() {
+          // Semi-transparent card so the live AI snake remains clearly visible
+          const cardX = PAD + 34;
+          const cardY = HUD_H + 66;
+          const cardW = BOARD_PX - 68;
+          const cardH = BOARD_PX - 132;
+
+          ctx.save();
+          ctx.fillStyle = "rgba(4, 12, 8, 0.62)";
+          drawRoundedRect(cardX, cardY, cardW, cardH, 14);
+          ctx.strokeStyle = "rgba(57, 255, 20, 0.65)";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          // Glowing neon SLANG logo
+          ctx.shadowColor = "#39ff14";
+          ctx.shadowBlur = 22;
+          ctx.fillStyle = "#39ff14";
+          ctx.font = "900 66px ui-monospace, monospace";
+          ctx.fillText("SLANG", LOGICAL_W * 0.5, cardY + 66);
+          ctx.shadowBlur = 0;
+
+          ctx.fillStyle = "#00f5d4";
+          ctx.font = "800 12px ui-monospace, monospace";
+          ctx.fillText("RETRO NEON SERPENT • 1976", LOGICAL_W * 0.5, cardY + 110);
+
+          if (highScore > 0) {
+            ctx.fillStyle = "#ffd700";
+            ctx.font = "900 16px ui-monospace, monospace";
+            ctx.fillText(`HIGH SCORE: ${highScore}`, LOGICAL_W * 0.5, cardY + 144);
+          }
+
+          // Interactive WALLS vs WRAP selector
+          ctx.fillStyle = "rgba(217, 255, 224, 0.72)";
+          ctx.font = "700 10px ui-monospace, monospace";
+          ctx.fillText("MODE (TAP OR ← / →)", LOGICAL_W * 0.5, modePillRect.y - 12);
+          drawModeTogglePill();
+
+          // Blinking start prompt
+          if (Math.floor(elapsedTime * 2.5) % 2 === 0) {
+            ctx.fillStyle = "#ffd700";
+            ctx.font = "900 15px ui-monospace, monospace";
+            ctx.fillText("PRESS SPACE OR TAP TO PLAY", LOGICAL_W * 0.5, cardY + cardH - 52);
+          }
+
+          ctx.fillStyle = "rgba(217, 255, 224, 0.78)";
+          ctx.font = "700 11px ui-monospace, monospace";
+          ctx.fillText("ARROWS / WASD / SWIPE • P PAUSE • M MUTE", LOGICAL_W * 0.5, cardY + cardH - 22);
+          ctx.restore();
+        }
+
+        function drawPauseOverlay() {
+          ctx.save();
+          ctx.fillStyle = "rgba(4, 10, 7, 0.72)";
+          ctx.fillRect(PAD, HUD_H, BOARD_PX, BOARD_PX);
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.shadowColor = "#39ff14";
+          ctx.shadowBlur = 16;
+          ctx.fillStyle = "#39ff14";
+          ctx.font = "900 40px ui-monospace, monospace";
+          ctx.fillText("PAUSED", LOGICAL_W * 0.5, HUD_H + BOARD_PX * 0.44);
+          ctx.shadowBlur = 0;
+
+          ctx.fillStyle = "#ffd700";
+          ctx.font = "800 14px ui-monospace, monospace";
+          ctx.fillText("PRESS P OR TAP TO RESUME", LOGICAL_W * 0.5, HUD_H + BOARD_PX * 0.55);
+          ctx.restore();
+        }
+
+        function drawGameOverOverlay() {
+          ctx.save();
+          ctx.fillStyle = "rgba(4, 10, 7, 0.80)";
+          ctx.fillRect(PAD, HUD_H, BOARD_PX, BOARD_PX);
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          ctx.shadowColor = "#ff2a6d";
+          ctx.shadowBlur = 18;
+          ctx.fillStyle = "#ff2a6d";
+          ctx.font = "900 44px ui-monospace, monospace";
+          ctx.fillText("GAME OVER", LOGICAL_W * 0.5, HUD_H + 104);
+          ctx.shadowBlur = 0;
+
+          if (isNewRecord) {
+            ctx.fillStyle = "#ffd700";
+            ctx.font = "900 16px ui-monospace, monospace";
+            ctx.fillText("★ NEW HIGH SCORE! ★", LOGICAL_W * 0.5, HUD_H + 148);
+          }
+
+          ctx.fillStyle = "#f0fff4";
+          ctx.font = "900 22px ui-monospace, monospace";
+          ctx.fillText(`SCORE: ${score}`, LOGICAL_W * 0.5, HUD_H + 188);
+
+          ctx.fillStyle = "#00f5d4";
+          ctx.font = "800 14px ui-monospace, monospace";
+          ctx.fillText(`HIGH: ${highScore}  •  LEN: ${snake.length}`, LOGICAL_W * 0.5, HUD_H + 220);
+
+          drawModeTogglePill();
+
+          if (Math.floor(elapsedTime * 2.5) % 2 === 0) {
+            ctx.fillStyle = "#ffd700";
+            ctx.font = "900 15px ui-monospace, monospace";
+            ctx.fillText("PRESS SPACE OR TAP TO PLAY AGAIN", LOGICAL_W * 0.5, HUD_H + BOARD_PX - 76);
+          }
+          ctx.restore();
+        }
+
+        function drawCRTScanlines() {
+          // Subtle CRT scanline texture
+          ctx.fillStyle = "rgba(0, 0, 0, 0.13)";
+          for (let y = HUD_H; y < LOGICAL_H; y += 3) {
+            ctx.fillRect(PAD, y, BOARD_PX, 1);
+          }
+
+          // Light corner vignette over the playfield
+          const vig = ctx.createRadialGradient(
+            LOGICAL_W * 0.5,
+            HUD_H + BOARD_PX * 0.5,
+            BOARD_PX * 0.34,
+            LOGICAL_W * 0.5,
+            HUD_H + BOARD_PX * 0.5,
+            BOARD_PX * 0.72
+          );
+          vig.addColorStop(0, "rgba(0, 0, 0, 0)");
+          vig.addColorStop(1, "rgba(0, 0, 0, 0.32)");
+          ctx.fillStyle = vig;
+          ctx.fillRect(PAD, HUD_H, BOARD_PX, BOARD_PX);
+        }
+
+        function render() {
+          ctx.fillStyle = "#050a07";
+          ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+          drawHUD();
+
+          ctx.save();
+          // Subtle screen shake on crash
+          if (shakeTimer > 0) {
+            const mag = (shakeTimer / 0.34) * 7;
+            ctx.translate((Math.random() - 0.5) * mag, (Math.random() - 0.5) * mag);
+          }
+
+          drawPlayfield();
+          drawApple();
+          drawBonusFruit();
+          drawSnake();
+          drawParticlesAndPopups();
+          drawCRTScanlines();
+
+          if (gameState === STATE.ATTRACT) {
+            drawAttractOverlay();
+          } else if (gameState === STATE.PAUSED) {
+            drawPauseOverlay();
+          } else if (gameState === STATE.GAMEOVER) {
+            drawGameOverOverlay();
+          }
+
+          ctx.restore();
+        }
+
+        // =========================================================================
+        // 13. MAIN ANIMATION LOOP
+        // =========================================================================
+        let lastTime = performance.now();
+
+        function loop(now) {
+          const rawDt = (now - lastTime) / 1000;
+          lastTime = now;
+          const dt = Math.min(Math.max(rawDt, 0), 0.05);
+
+          update(dt);
+          render();
+          requestAnimationFrame(loop);
+        }
+
+        // Boot immediately into live autonomous Attract Mode
+        resetRound(true);
+        updateUIControls();
+        resizeCanvas();
+        requestAnimationFrame(loop);
+      })();
+    </script>
+  </body>
+</html>
