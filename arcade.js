@@ -2,9 +2,9 @@
   "use strict";
 
   // ---------------------------------------------------------------------------
-  // Configuration
+  // Maintainer Configuration (not shown to players)
   // Leave owner/repo blank to auto-detect on *.github.io.
-  // For local testing, either fill these in or open ?repo=owner/repo.
+  // For local testing, fill these in or open ?repo=owner/repo.
   // ---------------------------------------------------------------------------
   const CONFIG = {
     owner: "",
@@ -30,7 +30,6 @@
 
   const CACHE_PREFIX = "retroArcade:v1:";
 
-  // DOM references
   const els = {
     search: document.getElementById("search"),
     filterToggle: document.querySelector(".models-toggle"),
@@ -56,13 +55,9 @@
     detailsGenre: document.querySelector(".details-harness"),
     detailsClose: document.querySelector(".details-close"),
     detailsBody: document.querySelector(".details-body"),
-    cacheInfo: document.querySelector("[data-cache-info]"),
-    refreshBtn: document.querySelector("[data-refresh]"),
-    repoLink: document.querySelector("[data-repo-link]"),
   };
 
   const state = {
-    repoInfo: null,
     games: [],
     query: "",
     selectedGenres: new Set(),
@@ -118,7 +113,7 @@
     try {
       localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(value));
     } catch {
-      // Ignore quota or private-browsing storage errors
+      // Ignore storage quota or private-browsing errors
     }
   }
 
@@ -140,21 +135,21 @@
   // ---------------------------------------------------------------------------
   // GitHub API + HTML metadata loader
   // ---------------------------------------------------------------------------
-  async function fetchDirectoryListing(repoInfo, { forceRefresh = false } = {}) {
+  async function fetchDirectoryListing(repoInfo) {
     const { owner, repo, branch } = repoInfo;
     const cacheKey = `dir:${owner}/${repo}/${CONFIG.gamesDir}:${branch || "default"}`;
     const cached = readCache(cacheKey);
     const now = Date.now();
 
-    if (!forceRefresh && cached && Array.isArray(cached.files) && now - cached.fetchedAt < CONFIG.dirCacheTtlMs) {
-      return { files: cached.files, source: "cache", fetchedAt: cached.fetchedAt };
+    if (cached && Array.isArray(cached.files) && now - cached.fetchedAt < CONFIG.dirCacheTtlMs) {
+      return { files: cached.files, fromStaleCache: false };
     }
 
     const refQuery = branch ? `?ref=${encodeURIComponent(branch)}` : "";
     const apiUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodeURIComponent(CONFIG.gamesDir)}${refQuery}`;
 
     const headers = { Accept: "application/vnd.github+json" };
-    if (!forceRefresh && cached && cached.etag) {
+    if (cached && cached.etag) {
       headers["If-None-Match"] = cached.etag;
     }
 
@@ -162,47 +157,42 @@
       const res = await fetch(apiUrl, { headers });
 
       if (res.status === 304 && cached) {
-        const updated = { ...cached, fetchedAt: now };
-        writeCache(cacheKey, updated);
-        return { files: cached.files, source: "revalidated", fetchedAt: now };
-      }
-
-      if (res.status === 404) {
-        throw new Error(`Folder "${CONFIG.gamesDir}/" was not found in ${owner}/${repo}.`);
-      }
-
-      if (res.status === 403) {
-        if (cached && Array.isArray(cached.files)) {
-          return { files: cached.files, source: "stale-rate-limit", fetchedAt: cached.fetchedAt };
-        }
-        throw new Error("GitHub API rate limit reached (60 req/hr). Please wait a bit and refresh.");
+        writeCache(cacheKey, { ...cached, fetchedAt: now });
+        return { files: cached.files, fromStaleCache: false };
       }
 
       if (!res.ok) {
-        throw new Error(`GitHub API error (${res.status}).`);
+        console.warn(`[Retro Arcade] Directory request failed (${res.status}) for ${apiUrl}`);
+        if (cached && Array.isArray(cached.files)) {
+          return { files: cached.files, fromStaleCache: true };
+        }
+        const msg =
+          res.status === 403
+            ? "The arcade is temporarily busy. Please try again in a few minutes."
+            : "Couldn't load the game library right now. Please try again shortly.";
+        throw new Error(msg);
       }
 
       const data = await res.json();
       if (!Array.isArray(data)) {
-        throw new Error(`"${CONFIG.gamesDir}" is not a directory in ${owner}/${repo}.`);
+        console.warn(`[Retro Arcade] Expected directory array at ${apiUrl}`);
+        throw new Error("Couldn't load the game library right now. Please try again shortly.");
       }
 
       const files = data
         .filter((item) => item.type === "file" && /\.html?$/i.test(item.name))
         .map((item) => ({
           name: item.name,
-          path: item.path,
           sha: item.sha,
-          size: item.size || 0,
           downloadUrl: item.download_url || "",
         }));
 
       const etag = res.headers.get("ETag") || "";
       writeCache(cacheKey, { etag, fetchedAt: now, files });
-      return { files, source: "network", fetchedAt: now };
+      return { files, fromStaleCache: false };
     } catch (err) {
       if (cached && Array.isArray(cached.files)) {
-        return { files: cached.files, source: "stale-offline", fetchedAt: cached.fetchedAt };
+        return { files: cached.files, fromStaleCache: true };
       }
       throw err;
     }
@@ -256,12 +246,12 @@
     const relativeUrl = `./${CONFIG.gamesDir}/${encodeURIComponent(file.name)}`;
     let html = "";
 
-    // Try same-origin GitHub Pages file first (fast CDN, zero GitHub API quota)
+    // Fetch from same-origin CDN first (zero API quota), then fall back to raw URL
     try {
       const res = await fetch(relativeUrl);
       if (res.ok) html = await res.text();
     } catch {
-      // Fall through to raw.githubusercontent.com
+      // Fall through
     }
 
     if (!html && file.downloadUrl) {
@@ -296,10 +286,8 @@
     const accent = meta.color || GENRE_COLORS[meta.genre] || "var(--pac)";
     return {
       id: file.name,
-      filename: file.name,
       url: `./${CONFIG.gamesDir}/${encodeURIComponent(file.name)}`,
       sha: file.sha,
-      size: file.size,
       title: meta.title || prettifyFilename(file.name),
       description: meta.description || "",
       genre: meta.genre || "Arcade",
@@ -332,17 +320,14 @@
   // ---------------------------------------------------------------------------
   // Formatting helpers
   // ---------------------------------------------------------------------------
-  function formatSize(bytes) {
-    if (!bytes) return "—";
-    if (bytes < 1024) return `${bytes} B`;
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-
-  function formatDate(iso) {
+  function formatDate(iso, { short = false } = {}) {
     if (!iso) return "—";
     const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
     if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    return d.toLocaleDateString(
+      undefined,
+      short ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" }
+    );
   }
 
   function escapeHtml(str) {
@@ -370,9 +355,7 @@
         }
       }
       if (q) {
-        const haystack = [g.title, g.description, g.genre, g.author, g.year, g.filename, ...g.tags]
-          .join(" ")
-          .toLowerCase();
+        const haystack = [g.title, g.description, g.genre, g.author, g.year, ...g.tags].join(" ").toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
@@ -393,9 +376,6 @@
           break;
         case "year":
           cmp = (parseInt(a.year, 10) || 0) - (parseInt(b.year, 10) || 0);
-          break;
-        case "size":
-          cmp = (a.size || 0) - (b.size || 0);
           break;
       }
       if (cmp !== 0) return cmp * dir;
@@ -460,7 +440,7 @@
       `);
     }
 
-    els.filterList.innerHTML = sections.join("") || `<p class="models-hint" style="padding:10px">No filters yet.</p>`;
+    els.filterList.innerHTML = sections.join("") || `<p class="models-hint" style="padding:10px">No filters available.</p>`;
     updateFilterSummary();
   }
 
@@ -506,28 +486,24 @@
   );
 
   function buildDetailMarkup(game) {
-    const rows = [
-      ["Genre", game.genre],
-      ["Added", formatDate(game.added)],
-      ["Year", game.year || "—"],
-      ["Size", formatSize(game.size)],
-      ["Author", game.author || "—"],
-      ["File", game.filename],
-    ];
+    const rows = [["Genre", game.genre]];
+    if (game.year) rows.push(["Year", game.year]);
+    if (game.added) rows.push(["Added", formatDate(game.added)]);
+    if (game.author) rows.push(["By", game.author]);
 
     return `
       <div class="cab-why">
         <p class="cab-panel-head">ABOUT</p>
-        <p class="cab-check-note" style="margin:0 0 10px">${escapeHtml(game.description || "Single-file HTML retro game.")}</p>
+        <p class="cab-check-note" style="margin:0 0 10px">${escapeHtml(game.description || "Classic retro browser game.")}</p>
         ${
           game.controls
-            ? `<p class="cab-panel-head" style="margin-top:10px">CONTROLS</p>
+            ? `<p class="cab-panel-head" style="margin-top:10px">HOW TO PLAY</p>
                <p class="cab-check-note" style="margin:0">${escapeHtml(game.controls)}</p>`
             : ""
         }
       </div>
       <div>
-        <p class="cab-panel-head">CABINET DATA</p>
+        <p class="cab-panel-head">GAME INFO</p>
         <dl class="cab-detail-list">
           ${rows
             .map(
@@ -540,7 +516,7 @@
             .join("")}
         </dl>
         <p style="margin:12px 0 0;font-size:0.75rem">
-          <a href="${escapeHtml(game.url)}" target="_blank" rel="noopener">Open standalone ↗</a>
+          <a href="${escapeHtml(game.url)}" target="_blank" rel="noopener">Open in new tab ↗</a>
         </p>
       </div>
     `;
@@ -584,7 +560,7 @@
               <svg aria-hidden="true"><use href="#ghost" /></svg>
               ${escapeHtml(game.genre)}
             </span>
-            <span class="cab-score">${game.year ? `<b>${escapeHtml(game.year)}</b>` : escapeHtml(formatSize(game.size))}</span>
+            <span class="cab-score">${game.year ? `<b>${escapeHtml(game.year)}</b>` : ""}</span>
           </div>
           <h2 class="cab-model">
             <a class="cab-link" href="${escapeHtml(game.url)}" data-play-id="${escapeHtml(game.id)}">
@@ -596,15 +572,11 @@
           <dl class="cab-stats">
             <div class="cab-stat">
               <dt>ADDED</dt>
-              <dd class="${game.added ? "" : "is-empty"}">${escapeHtml(game.added || "—")}</dd>
+              <dd class="${game.added ? "" : "is-empty"}">${escapeHtml(formatDate(game.added, { short: true }))}</dd>
             </div>
             <div class="cab-stat">
-              <dt>SIZE</dt>
-              <dd>${escapeHtml(formatSize(game.size))}</dd>
-            </div>
-            <div class="cab-stat">
-              <dt>TAGS</dt>
-              <dd class="${game.tags.length ? "" : "is-empty"}">${game.tags.length || "—"}</dd>
+              <dt>YEAR</dt>
+              <dd class="${game.year ? "" : "is-empty"}">${escapeHtml(game.year || "—")}</dd>
             </div>
           </dl>
           <details class="cab-details">
@@ -635,8 +607,7 @@
     els.playName.textContent = game.title;
     els.playStats.innerHTML = `
       <div class="cab-stat"><dt>GENRE</dt><dd data-field="score">${escapeHtml(game.genre)}</dd></div>
-      <div class="cab-stat"><dt>ADDED</dt><dd>${escapeHtml(game.added || "—")}</dd></div>
-      <div class="cab-stat"><dt>SIZE</dt><dd>${escapeHtml(formatSize(game.size))}</dd></div>
+      ${game.year ? `<div class="cab-stat"><dt>YEAR</dt><dd>${escapeHtml(game.year)}</dd></div>` : ""}
     `;
 
     if (state.playFrame) {
@@ -736,25 +707,23 @@
     }
   }
 
-  function showStatus(html, { isError = false } = {}) {
-    els.status.innerHTML = html;
+  function showStatus(text, { isError = false } = {}) {
+    els.status.textContent = text;
     els.status.classList.toggle("is-error", isError);
     els.status.hidden = false;
   }
 
   function hideStatus() {
     els.status.hidden = true;
-    els.status.innerHTML = "";
+    els.status.textContent = "";
   }
 
   function wireEvents() {
-    // Search input
     els.search.addEventListener("input", (e) => {
       state.query = e.target.value;
       renderGrid();
     });
 
-    // '/' shortcut focuses search, Escape closes filter panel or overlay
     document.addEventListener("keydown", (e) => {
       if (e.key === "/" && !state.activeGame && document.activeElement !== els.search) {
         e.preventDefault();
@@ -770,14 +739,12 @@
       }
     });
 
-    // Filter dropdown toggle
     els.filterToggle.addEventListener("click", () => {
       const opening = els.filterPanel.hidden;
       els.filterPanel.hidden = !opening;
       els.filterToggle.setAttribute("aria-expanded", String(opening));
     });
 
-    // Close filter dropdown on outside click
     document.addEventListener("click", (e) => {
       if (!els.filterPanel.hidden && !e.target.closest(".models")) {
         els.filterPanel.hidden = true;
@@ -785,7 +752,6 @@
       }
     });
 
-    // Filter checkboxes
     els.filterList.addEventListener("change", (e) => {
       const input = e.target;
       if (!input.matches("input[type='checkbox']")) return;
@@ -796,7 +762,6 @@
       renderGrid();
     });
 
-    // Clear filters
     els.filterClear.addEventListener("click", () => {
       state.selectedGenres.clear();
       state.selectedTags.clear();
@@ -804,7 +769,6 @@
       renderGrid();
     });
 
-    // Sort chips
     els.sortButtons.forEach((btn) => {
       btn.addEventListener("click", () => {
         const key = btn.dataset.sort;
@@ -819,7 +783,6 @@
       });
     });
 
-    // Reset button in empty state
     els.gameOverReset.addEventListener("click", () => {
       state.query = "";
       els.search.value = "";
@@ -829,7 +792,6 @@
       renderGrid();
     });
 
-    // Card clicks: launch game or toggle tag pill
     els.grid.addEventListener("click", (e) => {
       const tagBtn = e.target.closest("[data-tag-pill]");
       if (tagBtn) {
@@ -851,7 +813,6 @@
       }
     });
 
-    // Overlay controls
     els.playBack.addEventListener("click", () => closeGame());
     els.playFullscreen.addEventListener("click", toggleFullscreen);
     document.addEventListener("fullscreenchange", updateFullscreenButton);
@@ -867,11 +828,7 @@
       if (e.target === els.detailsDialog) els.detailsDialog.close();
     });
 
-    // Browser back/forward hash navigation
     window.addEventListener("hashchange", syncFromHash);
-
-    // Manual cache refresh button
-    els.refreshBtn.addEventListener("click", () => loadGames({ forceRefresh: true }));
   }
 
   function syncFromHash() {
@@ -890,36 +847,23 @@
   // ---------------------------------------------------------------------------
   // Main boot flow
   // ---------------------------------------------------------------------------
-  async function loadGames({ forceRefresh = false } = {}) {
+  async function loadGames() {
     hideStatus();
     els.loading.hidden = false;
 
     const repoInfo = detectRepo();
-    state.repoInfo = repoInfo;
-
     if (!repoInfo) {
+      console.warn(
+        "[Retro Arcade] Could not auto-detect repository. Set CONFIG.owner and CONFIG.repo in arcade.js or open with ?repo=owner/repo."
+      );
       els.loading.hidden = true;
       els.count.textContent = "0 / 0";
-      showStatus(
-        `<span>Running outside <code>*.github.io</code>. Set <code>CONFIG.owner</code> and <code>CONFIG.repo</code> in <code>arcade.js</code> or open with <code>?repo=owner/repo</code>.</span>`,
-        { isError: true }
-      );
+      showStatus("The arcade is getting set up — check back soon!", { isError: false });
       return;
     }
 
-    els.repoLink.href = `https://github.com/${repoInfo.owner}/${repoInfo.repo}`;
-    els.repoLink.textContent = `github.com/${repoInfo.owner}/${repoInfo.repo}`;
-    els.repoLink.hidden = false;
-
     try {
-      const listing = await fetchDirectoryListing(repoInfo, { forceRefresh });
-
-      if (listing.source === "stale-rate-limit") {
-        showStatus("GitHub API rate limit reached; showing cached game list.");
-      } else if (listing.source === "stale-offline") {
-        showStatus("Could not reach GitHub API; showing cached game list.");
-      }
-
+      const listing = await fetchDirectoryListing(repoInfo);
       const validShas = new Set(listing.files.map((f) => f.sha));
       pruneMetaCache(validShas);
 
@@ -931,16 +875,15 @@
       renderGrid();
       syncFromHash();
 
-      const timeStr = new Date(listing.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      els.cacheInfo.textContent = `${state.games.length} cabinets · ${listing.source} (${timeStr})`;
-
       if (state.games.length === 0) {
-        showStatus(`No <code>.html</code> files found in <code>${escapeHtml(CONFIG.gamesDir)}/</code> yet.`);
+        showStatus("No games are on the arcade floor yet — check back soon!");
       }
     } catch (err) {
       els.loading.hidden = true;
       els.count.textContent = "0 / 0";
-      showStatus(`<span>${escapeHtml(err.message || "Failed to load games.")}</span>`, { isError: true });
+      showStatus(err.message || "Couldn't load the game library right now. Please try again shortly.", {
+        isError: true,
+      });
     }
   }
 
