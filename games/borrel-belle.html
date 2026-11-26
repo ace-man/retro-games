@@ -1,0 +1,2416 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Borrel Belle</title>
+    <meta name="description" content="Trap cheeky cave critters in shimmering bubbles and pop them in chain combos across retro arcade stages." />
+    <meta name="game:genre" content="Platformer" />
+    <meta name="game:tags" content="bubbles, retro, 1-player, keyboard, touch" />
+    <meta name="game:added" content="2026-11-26" />
+    <meta name="game:year" content="1986" />
+    <meta name="game:controls" content="Arrow keys or A/D to move, W/Up/Z to jump, Space/X to blow bubbles, P to pause, M to mute" />
+    <meta name="game:author" content="Arcade Bot" />
+    <meta name="game:color" content="#38f2ff" />
+    <style>
+      /* Reset and strict zero-scrollbar viewport lock for iframe & fullscreen compatibility */
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+      }
+
+      /* Centered stage container */
+      #stage-wrap {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at center, #0c1224 0%, #000000 78%);
+      }
+
+      /* Crisp pixel-art canvas scaled to fit any aspect ratio cleanly */
+      #game {
+        display: block;
+        width: min(100vw, calc(100vh * 512 / 448));
+        height: min(100vh, calc(100vw * 448 / 512));
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+        box-shadow: 0 0 28px rgba(56, 242, 255, 0.18);
+        cursor: pointer;
+      }
+
+      /* Translucent touch controls: hidden on desktop/iframe previews, shown only on coarse touch pointers */
+      #touch-controls {
+        display: none;
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 10;
+      }
+
+      @media (pointer: coarse) {
+        #touch-controls {
+          display: block;
+        }
+      }
+
+      .touch-group {
+        position: absolute;
+        bottom: max(14px, env(safe-area-inset-bottom, 14px));
+        display: flex;
+        gap: 12px;
+        pointer-events: none;
+      }
+
+      .touch-left {
+        left: max(14px, env(safe-area-inset-left, 14px));
+      }
+
+      .touch-right {
+        right: max(14px, env(safe-area-inset-right, 14px));
+      }
+
+      .touch-top {
+        position: absolute;
+        top: max(10px, env(safe-area-inset-top, 10px));
+        right: max(10px, env(safe-area-inset-right, 10px));
+        display: flex;
+        gap: 8px;
+        pointer-events: none;
+      }
+
+      .tbtn {
+        pointer-events: auto;
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        border: 2px solid rgba(56, 242, 255, 0.55);
+        background: rgba(12, 24, 48, 0.48);
+        color: rgba(255, 255, 255, 0.9);
+        font-family: monospace;
+        font-size: 22px;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-tap-highlight-color: transparent;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+      }
+
+      .tbtn.active {
+        background: rgba(56, 242, 255, 0.42);
+        border-color: #ffffff;
+        transform: scale(0.94);
+      }
+
+      .tbtn-bubble {
+        border-color: rgba(255, 77, 166, 0.72);
+        background: rgba(70, 14, 46, 0.52);
+      }
+
+      .tbtn-bubble.active {
+        background: rgba(255, 77, 166, 0.48);
+      }
+
+      .tbtn-small {
+        width: 38px;
+        height: 38px;
+        font-size: 13px;
+        border-radius: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage-wrap">
+      <canvas id="game" width="512" height="448" aria-label="Borrel Belle Arcade Game"></canvas>
+    </div>
+
+    <!-- Mobile / Touch overlay (visible only on coarse pointers) -->
+    <div id="touch-controls" aria-hidden="true">
+      <div class="touch-top">
+        <button class="tbtn tbtn-small" data-action="pause" type="button">II</button>
+        <button class="tbtn tbtn-small" data-action="mute" type="button">♪</button>
+      </div>
+      <div class="touch-group touch-left">
+        <button class="tbtn" data-action="left" type="button">◀</button>
+        <button class="tbtn" data-action="right" type="button">▶</button>
+      </div>
+      <div class="touch-group touch-right">
+        <button class="tbtn tbtn-bubble" data-action="bubble" type="button">○</button>
+        <button class="tbtn" data-action="jump" type="button">▲</button>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        "use strict";
+
+        /* =====================================================================
+         * 1. CONSTANTS, CANVAS SETUP & STORAGE
+         * ===================================================================== */
+        const WIDTH = 512;
+        const HEIGHT = 448;
+        const TILE = 16;
+        const COLS = 32; // 32 * 16 = 512
+        const ROWS = 28; // 28 * 16 = 448
+        const HUD_HEIGHT = 32; // Rows 0..1
+        const FIXED_DT = 1 / 60;
+        const STORAGE_KEY = "borrel-belle:highscore";
+
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d", { alpha: false });
+        ctx.imageSmoothingEnabled = false;
+
+        function loadHighScore() {
+          try {
+            const val = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+            return Number.isFinite(val) && val > 0 ? val : 10000;
+          } catch (_) {
+            return 10000;
+          }
+        }
+
+        function saveHighScore(val) {
+          try {
+            localStorage.setItem(STORAGE_KEY, String(val));
+          } catch (_) {
+            // Ignore sandboxed storage restrictions
+          }
+        }
+
+        /* =====================================================================
+         * 2. CRISP 5x7 BITMAP PIXEL FONT RENDERER (ZERO EXTERNAL FONTS)
+         * ===================================================================== */
+        const FONT_5X7 = {
+          "A": ["01110","10001","10001","11111","10001","10001","10001"],
+          "B": ["11110","10001","10001","11110","10001","10001","11110"],
+          "C": ["01111","10000","10000","10000","10000","10000","01111"],
+          "D": ["11110","10001","10001","10001","10001","10001","11110"],
+          "E": ["11111","10000","10000","11110","10000","10000","11111"],
+          "F": ["11111","10000","10000","11110","10000","10000","10000"],
+          "G": ["01111","10000","10000","10111","10001","10001","01110"],
+          "H": ["10001","10001","10001","11111","10001","10001","10001"],
+          "I": ["11111","00100","00100","00100","00100","00100","11111"],
+          "J": ["00111","00010","00010","00010","10010","10010","01100"],
+          "K": ["10001","10010","10100","11000","10100","10010","10001"],
+          "L": ["10000","10000","10000","10000","10000","10000","11111"],
+          "M": ["10001","11011","10101","10101","10001","10001","10001"],
+          "N": ["10001","11001","10101","10011","10001","10001","10001"],
+          "O": ["01110","10001","10001","10001","10001","10001","01110"],
+          "P": ["11110","10001","10001","11110","10000","10000","10000"],
+          "Q": ["01110","10001","10001","10001","10101","10010","01101"],
+          "R": ["11110","10001","10001","11110","10100","10010","10001"],
+          "S": ["01111","10000","10000","01110","00001","00001","11110"],
+          "T": ["11111","00100","00100","00100","00100","00100","00100"],
+          "U": ["10001","10001","10001","10001","10001","10001","01110"],
+          "V": ["10001","10001","10001","10001","10001","01010","00100"],
+          "W": ["10001","10001","10001","10101","10101","11011","10001"],
+          "X": ["10001","10001","01010","00100","01010","10001","10001"],
+          "Y": ["10001","10001","01010","00100","00100","00100","00100"],
+          "Z": ["11111","00001","00010","00100","01000","10000","11111"],
+          "0": ["01110","10011","10101","10101","11001","10001","01110"],
+          "1": ["00100","01100","00100","00100","00100","00100","01110"],
+          "2": ["01110","10001","00001","00110","01000","10000","11111"],
+          "3": ["11110","00001","00001","01110","00001","00001","11110"],
+          "4": ["00010","00110","01010","10010","11111","00010","00010"],
+          "5": ["11111","10000","11110","00001","00001","10001","01110"],
+          "6": ["01110","10000","11110","10001","10001","10001","01110"],
+          "7": ["11111","00001","00010","00100","01000","01000","01000"],
+          "8": ["01110","10001","10001","01110","10001","10001","01110"],
+          "9": ["01110","10001","10001","01111","00001","00010","01100"],
+          "!": ["00100","00100","00100","00100","00100","00000","00100"],
+          "-": ["00000","00000","00000","11111","00000","00000","00000"],
+          ":": ["00000","00100","00000","00000","00000","00100","00000"],
+          "/": ["00001","00010","00010","00100","01000","01000","10000"],
+          ".": ["00000","00000","00000","00000","00000","01100","01100"],
+          "+": ["00000","00100","00100","11111","00100","00100","00000"],
+          " ": ["00000","00000","00000","00000","00000","00000","00000"]
+        };
+
+        function drawPixelText(text, x, y, scale, color, align = "left", shadowColor = null) {
+          const str = String(text).toUpperCase();
+          const charW = 6 * scale;
+          const totalW = str.length * charW - scale;
+          let startX = Math.round(x);
+          if (align === "center") startX = Math.round(x - totalW / 2);
+          else if (align === "right") startX = Math.round(x - totalW);
+          const startY = Math.round(y);
+
+          if (shadowColor) {
+            ctx.fillStyle = shadowColor;
+            for (let i = 0; i < str.length; i++) {
+              const glyph = FONT_5X7[str[i]] || FONT_5X7[" "];
+              const gx = startX + i * charW + scale;
+              for (let r = 0; r < 7; r++) {
+                const row = glyph[r];
+                for (let c = 0; c < 5; c++) {
+                  if (row[c] === "1") {
+                    ctx.fillRect(gx + c * scale, startY + r * scale + scale, scale, scale);
+                  }
+                }
+              }
+            }
+          }
+
+          ctx.fillStyle = color;
+          for (let i = 0; i < str.length; i++) {
+            const glyph = FONT_5X7[str[i]] || FONT_5X7[" "];
+            const gx = startX + i * charW;
+            for (let r = 0; r < 7; r++) {
+              const row = glyph[r];
+              for (let c = 0; c < 5; c++) {
+                if (row[c] === "1") {
+                  ctx.fillRect(gx + c * scale, startY + r * scale, scale, scale);
+                }
+              }
+            }
+          }
+        }
+
+        /* =====================================================================
+         * 3. PIXEL ART SPRITE MATRICES & OFFSCREEN BAKING
+         * ===================================================================== */
+        function bakeSprite(rows, palette, flipX = false) {
+          const h = rows.length;
+          const w = rows[0].length;
+          const c = document.createElement("canvas");
+          c.width = w;
+          c.height = h;
+          const g = c.getContext("2d");
+          for (let y = 0; y < h; y++) {
+            const line = rows[y];
+            for (let x = 0; x < w; x++) {
+              const ch = line[x];
+              if (ch === "." || ch === " ") continue;
+              const col = palette[ch];
+              if (!col) continue;
+              g.fillStyle = col;
+              g.fillRect(flipX ? w - 1 - x : x, y, 1, 1);
+            }
+          }
+          return c;
+        }
+
+        function bakePair(rows, palette) {
+          return {
+            R: bakeSprite(rows, palette, false),
+            L: bakeSprite(rows, palette, true)
+          };
+        }
+
+        // --- Borrel Belle (cute teal/emerald bubble dragon with bright pink bow/crest) ---
+        const BELLE_PAL = {
+          G: "#1ee6b0", // bright emerald-teal
+          D: "#0c9b78", // deep teal shading
+          B: "#b6ffe8", // pale mint belly
+          P: "#ff3d9a", // bright pink bow/crest
+          L: "#ff9ed0", // light pink highlight
+          W: "#ffffff", // eye white
+          K: "#101628", // dark outline/pupil
+          Y: "#ffe866"  // cute cheek/sparkle
+        };
+
+        const BELLE_WALK1 = [
+          "....PP..PP......",
+          "...PLP..PLP.....",
+          "....PPPPPP......",
+          "....GGGGGG......",
+          "...GGGGGGGG.....",
+          "..DGGGWKGGGG....",
+          "..DGGGWKGGGG....",
+          ".PDGGGGGGGGG....",
+          "..DGGGBBBGG.....",
+          ".PDGGGBBBGG.....",
+          "..DGGGBBBGG.....",
+          "...DGGGGGG......",
+          "....DD..DD......",
+          "...DD....DD.....",
+          "...KK....KK.....",
+          "................"
+        ];
+
+        const BELLE_WALK2 = [
+          "................",
+          "....PP..PP......",
+          "...PLP..PLP.....",
+          "....PPPPPP......",
+          "....GGGGGG......",
+          "...GGGGGGGG.....",
+          "..DGGGWKGGGG....",
+          "..DGGGWKGGGG....",
+          ".PDGGGGGGGGG....",
+          "..DGGGBBBGG.....",
+          ".PDGGGBBBGG.....",
+          "...DGGGGGG......",
+          ".....DD.DD......",
+          "....DD..DD......",
+          "....KK..KK......",
+          "................"
+        ];
+
+        const BELLE_JUMP = [
+          "....PP..PP......",
+          "...PLP..PLP.....",
+          "....PPPPPP......",
+          "....GGGGGG......",
+          "...GGGGGGGG.....",
+          "..DGGGWKGGGG....",
+          "..DGGGWKGGGG....",
+          ".PDGGGGGGGGG....",
+          "..DGGGBBBGGG....",
+          ".PDGGGBBBGG.....",
+          "...DGGGGGG......",
+          "..DD......DD....",
+          "..KK......KK....",
+          "................",
+          "................",
+          "................"
+        ];
+
+        const BELLE_BLOW = [
+          "....PP..PP......",
+          "...PLP..PLP.....",
+          "....PPPPPP......",
+          "....GGGGGG......",
+          "...GGGGGGGGG....",
+          "..DGGGWKGGGGG...",
+          "..DGGGWKGGYPG...",
+          ".PDGGGGGGGGPP...",
+          "..DGGGBBBGGG....",
+          ".PDGGGBBBGG.....",
+          "..DGGGBBBGG.....",
+          "...DGGGGGG......",
+          "....DD..DD......",
+          "...DD....DD.....",
+          "...KK....KK.....",
+          "................"
+        ];
+
+        const BELLE_LIFE = [
+          "..PP.PP.",
+          ".PGGGGP.",
+          "GGWKGGGG",
+          "GGWKGGGG",
+          "GGBBBGG.",
+          ".GGGGGG.",
+          "..D..D..",
+          "........"
+        ];
+
+        // --- Enemy 1: Pebble-Bot ---
+        const PEBBLE_PAL = {
+          A: "#8d99c7",
+          B: "#5a638e",
+          C: "#c7d1f5",
+          Y: "#ffe94d",
+          K: "#141628",
+          O: "#ff8c42"
+        };
+        const PEBBLE_ANGRY_PAL = {
+          A: "#ff5733",
+          B: "#b51d1d",
+          C: "#ffb366",
+          Y: "#ffff66",
+          K: "#1c0808",
+          O: "#ffdd55"
+        };
+
+        const PEBBLE_1 = [
+          "......OO........",
+          ".....OOOO.......",
+          "......OO........",
+          "....CCCCCC......",
+          "...CAAAAAAAC....",
+          "..CAAKYYKAAAC...",
+          "..CAAKYYKAAAC...",
+          "..BAAAAAAAAAB...",
+          "..BAAAOOAAAAB...",
+          "..BAAAAAAAAAB...",
+          "...BBBBBBBBB....",
+          "....BB...BB.....",
+          "...BBB...BBB....",
+          "...KKK...KKK....",
+          "................",
+          "................"
+        ];
+
+        const PEBBLE_2 = [
+          ".......OO.......",
+          "......OOOO......",
+          ".......OO.......",
+          "....CCCCCC......",
+          "...CAAAAAAAC....",
+          "..CAAKYYKAAAC...",
+          "..CAAKYYKAAAC...",
+          "..BAAAAAAAAAB...",
+          "..BAAAOOAAAAB...",
+          "..BAAAAAAAAAB...",
+          "...BBBBBBBBB....",
+          ".....BB.BB......",
+          "....BBB.BBB.....",
+          "....KKK.KKK.....",
+          "................",
+          "................"
+        ];
+
+        // --- Enemy 2: Spark-Imp ---
+        const SPARK_PAL = {
+          V: "#a64dff",
+          D: "#5f1eb8",
+          C: "#38f2ff",
+          W: "#ffffff",
+          Y: "#fff04d",
+          K: "#140b24"
+        };
+        const SPARK_ANGRY_PAL = {
+          V: "#ff2a6d",
+          D: "#9e0b37",
+          C: "#ffe600",
+          W: "#ffffff",
+          Y: "#ff9900",
+          K: "#22050f"
+        };
+
+        const SPARK_1 = [
+          "..CC........CC..",
+          "...CC......CC...",
+          "....VVVVVVVV....",
+          "...VVVVVVVVVV...",
+          "..VVDDKKKKDDVV..",
+          "..VVDKWWKWKDVV..",
+          "..VVDKYYKYKDVV..",
+          "..VVDDKKKKDDVV..",
+          "...VVVCCCCVVV...",
+          "..DDVVVVVVVVDD..",
+          ".CC.DDVVVVDD.CC.",
+          "....DD....DD....",
+          "...DDD....DDD...",
+          "...KKK....KKK...",
+          "................",
+          "................"
+        ];
+
+        const SPARK_2 = [
+          "...CC......CC...",
+          "..CC........CC..",
+          "....VVVVVVVV....",
+          "...VVVVVVVVVV...",
+          "..VVDDKKKKDDVV..",
+          "..VVDKWWKWKDVV..",
+          "..VVDKYYKYKDVV..",
+          "..VVDDKKKKDDVV..",
+          "...VVVCCCCVVV...",
+          ".CC.DDVVVVDD.CC.",
+          "....DDVVVVDD....",
+          ".....DD..DD.....",
+          "....DDD..DDD....",
+          "....KKK..KKK....",
+          "................",
+          "................"
+        ];
+
+        // --- Enemy 3: Gloop-Bat ---
+        const BAT_PAL = {
+          M: "#e84dff",
+          D: "#8a1fa6",
+          L: "#ffb3ff",
+          W: "#ffffff",
+          K: "#190724",
+          Y: "#66ff99"
+        };
+        const BAT_ANGRY_PAL = {
+          M: "#ff3333",
+          D: "#990011",
+          L: "#ff9988",
+          W: "#ffffff",
+          K: "#220404",
+          Y: "#ffee33"
+        };
+
+        const BAT_1 = [
+          "................",
+          ".MM..........MM.",
+          "MMMM..M..M..MMMM",
+          "MMMDMMMMMMMMDMMM",
+          ".MMDMMLLLLMMDMM.",
+          "..DMMKWKKWKMMD..",
+          "...MMKYKKYKMM...",
+          "...MMMMMMMMMM...",
+          "....DDWWWWDD....",
+          ".....DDDDDD.....",
+          "......M..M......",
+          "................",
+          "................",
+          "................",
+          "................",
+          "................"
+        ];
+
+        const BAT_2 = [
+          "................",
+          "................",
+          "......M..M......",
+          "....MMMMMMMM....",
+          "...MMMLLLLMMM...",
+          "..DMMKWKKWKMMD..",
+          ".MMDMMKYKKYKMDM.",
+          "MMMDMMMMMMMMDMMM",
+          "MMMM.DWWWWDDMMMM",
+          ".MM...DDDD...MM.",
+          "......M..M......",
+          "................",
+          "................",
+          "................",
+          "................",
+          "................"
+        ];
+
+        // --- Hurry Up Ghost: Grim-Float ---
+        const GRIM_PAL = {
+          W: "#e8fbff",
+          B: "#7fdfff",
+          D: "#3888b8",
+          R: "#ff2a55",
+          K: "#081424"
+        };
+
+        const GRIM_1 = [
+          ".....WWWWWW.....",
+          "...WWWWWWWWWW...",
+          "..WWWWWWWWWWWW..",
+          "..WWBWWWWWWBWW..",
+          ".WWBKKWWWWKKBWW.",
+          ".WWBKRWWWWKRBWW.",
+          ".WWBWWWWWWWWBWW.",
+          ".WWBWWKKKKWWBWW.",
+          ".WWBWWWWWWWWBWW.",
+          "..BBWWWWWWWWBB..",
+          "..BBBBBBBBBBBB..",
+          "..BB.BB..BB.BB..",
+          "..D...D..D...D..",
+          "................",
+          "................",
+          "................"
+        ];
+
+        const GRIM_2 = [
+          ".....WWWWWW.....",
+          "...WWWWWWWWWW...",
+          "..WWWWWWWWWWWW..",
+          "..WWBWWWWWWBWW..",
+          ".WWBKKWWWWKKBWW.",
+          ".WWBKRWWWWKRBWW.",
+          ".WWBWWWWWWWWBWW.",
+          ".WWBWWKKKKWWBWW.",
+          ".WWBWWWWWWWWBWW.",
+          "..BBWWWWWWWWBB..",
+          "..BBBBBBBBBBBB..",
+          ".BB..BB..BB..BB.",
+          ".D....D..D....D.",
+          "................",
+          "................",
+          "................"
+        ];
+
+        // --- Collectible Fruits & Treats ---
+        const FRUIT_PAL = {
+          R: "#ff3355", D: "#b01030", W: "#ffffff", G: "#39e66b", E: "#1b8a3e",
+          Y: "#ffe838", O: "#ff9b24", P: "#b955ff", V: "#6c24b5", C: "#38f2ff",
+          K: "#141020"
+        };
+
+        const FRUIT_SPRITES = [
+          // 0: Cherries (500)
+          {
+            name: "CHERRY",
+            points: 500,
+            sprite: bakeSprite([
+              ".......GG.......",
+              "......G..G......",
+              ".....G....G.....",
+              "....G......G....",
+              "...G........G...",
+              "..RRR......RRR..",
+              ".RWRRR....RWRRR.",
+              ".RRRRR....RRRRR.",
+              ".RRDRR....RRDRR.",
+              "..DDD......DDD..",
+              "................",
+              "................"
+            ], FRUIT_PAL)
+          },
+          // 1: Banana (750)
+          {
+            name: "BANANA",
+            points: 750,
+            sprite: bakeSprite([
+              ".........EE.....",
+              "........YY......",
+              ".......YYY......",
+              "......YYYY......",
+              ".....YWWYY......",
+              "....YYYYYO......",
+              "...YYYYOO.......",
+              "..YYYYOO........",
+              ".YYYYOO.........",
+              "..OOOO..........",
+              "................",
+              "................"
+            ], FRUIT_PAL)
+          },
+          // 2: Watermelon (1000)
+          {
+            name: "MELON",
+            points: 1000,
+            sprite: bakeSprite([
+              "................",
+              ".....RRRR.......",
+              "...RRRRRRRR.....",
+              "..RRKRRRRKRR....",
+              ".RRRRKRRRRRRR...",
+              ".RRKRRRRRRKRR...",
+              ".WWWWWWWWWWWW...",
+              "..GGGGGGGGGG....",
+              "...EEEEEEEE.....",
+              "................",
+              "................",
+              "................"
+            ], FRUIT_PAL)
+          },
+          // 3: Grapes (1500)
+          {
+            name: "GRAPES",
+            points: 1500,
+            sprite: bakeSprite([
+              ".....GGG........",
+              "......G.........",
+              "...PP.PP.PP.....",
+              "..PWPPWPPWPP....",
+              "...VV.VV.VV.....",
+              "....PP.PP.......",
+              "...PWPPWPP......",
+              "....VV.VV.......",
+              ".....PPP........",
+              ".....VVV........",
+              "................",
+              "................"
+            ], FRUIT_PAL)
+          },
+          // 4: Star-Gem (2000)
+          {
+            name: "STAR",
+            points: 2000,
+            sprite: bakeSprite([
+              ".....YY.........",
+              ".....YY.........",
+              "....YWWY........",
+              ".YYYYWWYYYY.....",
+              "..YYWWWWYY......",
+              "...YCCCCY.......",
+              "...YYCCYY.......",
+              "..YYY..YYY......",
+              ".YY......YY.....",
+              "................",
+              "................",
+              "................"
+            ], FRUIT_PAL)
+          }
+        ];
+
+        const SPRITES = {
+          belle: {
+            walk1: bakePair(BELLE_WALK1, BELLE_PAL),
+            walk2: bakePair(BELLE_WALK2, BELLE_PAL),
+            jump: bakePair(BELLE_JUMP, BELLE_PAL),
+            blow: bakePair(BELLE_BLOW, BELLE_PAL),
+            life: bakeSprite(BELLE_LIFE, BELLE_PAL)
+          },
+          pebble: {
+            normal: [bakePair(PEBBLE_1, PEBBLE_PAL), bakePair(PEBBLE_2, PEBBLE_PAL)],
+            angry: [bakePair(PEBBLE_1, PEBBLE_ANGRY_PAL), bakePair(PEBBLE_2, PEBBLE_ANGRY_PAL)]
+          },
+          spark: {
+            normal: [bakePair(SPARK_1, SPARK_PAL), bakePair(SPARK_2, SPARK_PAL)],
+            angry: [bakePair(SPARK_1, SPARK_ANGRY_PAL), bakePair(SPARK_2, SPARK_ANGRY_PAL)]
+          },
+          bat: {
+            normal: [bakePair(BAT_1, BAT_PAL), bakePair(BAT_2, BAT_PAL)],
+            angry: [bakePair(BAT_1, BAT_ANGRY_PAL), bakePair(BAT_2, BAT_ANGRY_PAL)]
+          },
+          grim: [bakePair(GRIM_1, GRIM_PAL), bakePair(GRIM_2, GRIM_PAL)]
+        };
+
+        /* =====================================================================
+         * 4. WEB AUDIO API RETRO CHIPTUNE SYNTH (LAZY-INIT ON USER GESTURE)
+         * ===================================================================== */
+        const audio = {
+          ctx: null,
+          master: null,
+          muted: false,
+          bgmStep: 0,
+          bgmTimer: 0,
+
+          unlock() {
+            if (!this.ctx) {
+              const AudioCtx = window.AudioContext || window.webkitAudioContext;
+              if (!AudioCtx) return;
+              try {
+                this.ctx = new AudioCtx();
+                this.master = this.ctx.createGain();
+                this.master.gain.value = this.muted ? 0 : 0.22;
+                this.master.connect(this.ctx.destination);
+              } catch (_) {
+                this.ctx = null;
+              }
+            }
+            if (this.ctx && this.ctx.state === "suspended") {
+              this.ctx.resume().catch(() => {});
+            }
+          },
+
+          toggleMute() {
+            this.muted = !this.muted;
+            if (this.master && this.ctx) {
+              this.master.gain.setTargetAtTime(this.muted ? 0 : 0.22, this.ctx.currentTime, 0.015);
+            }
+          },
+
+          tone(type, freqStart, freqEnd, duration, gainPeak = 0.28, delay = 0) {
+            if (!this.ctx || !this.master || this.muted) return;
+            const t = this.ctx.currentTime + delay;
+            const osc = this.ctx.createOscillator();
+            const g = this.ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freqStart, t);
+            if (freqEnd !== freqStart) {
+              osc.frequency.exponentialRampToValueAtTime(Math.max(20, freqEnd), t + duration);
+            }
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.linearRampToValueAtTime(gainPeak, t + 0.008);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+            osc.connect(g);
+            g.connect(this.master);
+            osc.start(t);
+            osc.stop(t + duration + 0.01);
+          },
+
+          noise(duration, gainPeak = 0.22, delay = 0) {
+            if (!this.ctx || !this.master || this.muted) return;
+            const sr = this.ctx.sampleRate;
+            const len = Math.max(1, Math.floor(sr * duration));
+            const buf = this.ctx.createBuffer(1, len, sr);
+            const data = buf.getChannelData(0);
+            for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+            const src = this.ctx.createBufferSource();
+            src.buffer = buf;
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = "highpass";
+            filter.frequency.value = 1200;
+            const g = this.ctx.createGain();
+            const t = this.ctx.currentTime + delay;
+            g.gain.setValueAtTime(gainPeak, t);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+            src.connect(filter);
+            filter.connect(g);
+            g.connect(this.master);
+            src.start(t);
+          },
+
+          sfxJump() {
+            this.tone("square", 240, 620, 0.12, 0.2);
+          },
+
+          sfxBounce() {
+            this.tone("triangle", 200, 760, 0.16, 0.34);
+            this.tone("square", 320, 880, 0.12, 0.15, 0.03);
+          },
+
+          sfxBubble() {
+            this.tone("sine", 340, 720, 0.08, 0.24);
+            this.tone("triangle", 520, 920, 0.06, 0.14, 0.02);
+          },
+
+          sfxTrap() {
+            this.tone("square", 440, 660, 0.07, 0.2);
+            this.tone("square", 660, 990, 0.09, 0.22, 0.06);
+          },
+
+          sfxPop(comboIndex = 0) {
+            const pitch = 520 * Math.pow(1.16, Math.min(comboIndex, 8));
+            this.noise(0.055, 0.22);
+            this.tone("square", pitch, pitch * 1.45, 0.09, 0.24);
+          },
+
+          sfxFruit() {
+            this.tone("square", 659, 659, 0.06, 0.22);
+            this.tone("square", 880, 1046, 0.12, 0.24, 0.06);
+          },
+
+          sfxSpark() {
+            this.tone("sawtooth", 780, 320, 0.11, 0.14);
+          },
+
+          sfxHurt() {
+            this.tone("sawtooth", 380, 95, 0.34, 0.28);
+            this.noise(0.18, 0.2);
+          },
+
+          sfxHurry() {
+            const notes = [523, 659, 784, 1046, 784, 1046];
+            notes.forEach((n, i) => this.tone("square", n, n, 0.08, 0.24, i * 0.09));
+          },
+
+          sfxStageClear() {
+            const notes = [523, 659, 784, 1046, 987, 1046, 1318];
+            notes.forEach((n, i) => this.tone("square", n, n, 0.12, 0.24, i * 0.1));
+          },
+
+          sfxGameOver() {
+            const notes = [440, 415, 392, 349, 330, 261];
+            notes.forEach((n, i) => this.tone("triangle", n, n * 0.96, 0.2, 0.3, i * 0.17));
+          },
+
+          // Upbeat original 1986-style cavern chiptune loop
+          updateBgm(dt, hurry) {
+            if (!this.ctx || !this.master || this.muted) return;
+            const stepDur = hurry ? 0.115 : 0.145;
+            this.bgmTimer -= dt;
+            if (this.bgmTimer > 0) return;
+            this.bgmTimer += stepDur;
+
+            // 32-step cheerful melody (Hz, 0 = rest)
+            const lead = [
+              523, 0, 659, 784, 880, 784, 659, 523,
+              587, 0, 698, 880, 784, 0, 659, 0,
+              523, 659, 784, 1046, 880, 784, 659, 587,
+              659, 587, 523, 440, 523, 0, 0, 0
+            ];
+            const bass = [
+              131, 196, 131, 196, 175, 220, 175, 220,
+              147, 220, 147, 220, 196, 247, 196, 247,
+              131, 196, 165, 247, 175, 220, 147, 220,
+              196, 147, 131, 196, 131, 0, 196, 0
+            ];
+
+            const idx = this.bgmStep % lead.length;
+            if (lead[idx] > 0) {
+              this.tone("square", lead[idx], lead[idx], stepDur * 0.72, 0.085);
+            }
+            if (bass[idx] > 0) {
+              this.tone("triangle", bass[idx], bass[idx], stepDur * 0.85, 0.13);
+            }
+            this.bgmStep = (this.bgmStep + 1) % lead.length;
+          }
+        };
+
+        /* =====================================================================
+         * 5. FIVE HAND-CRAFTED RETRO CAVERN STAGES
+         * =====================================================================
+         * Interior playfield is rows 3..26 (24 rows), cols 1..30 (30 cols).
+         * Row 2 is ceiling, Row 27 is floor, Col 0 & Col 31 are solid walls.
+         * '=' = one-way platform, '.' = empty space.
+         */
+        const STAGES = [
+          {
+            name: "CRYSTAL GROTTO",
+            palette: { main: "#2f7de1", hi: "#78c8ff", sh: "#173c7a", mortar: "#0c1d42", bg: "#080f24" },
+            pits: [[13, 18]],
+            gather: { x: 256, y: 88 },
+            layout: [
+              "..............................", // r3
+              "..............................", // r4
+              "..............................", // r5
+              "..............................", // r6
+              ".....======........======.....", // r7
+              "..............................", // r8
+              "..............................", // r9
+              "..............................", // r10
+              "..======....======....======..", // r11
+              "..............................", // r12
+              "..............................", // r13
+              "..............................", // r14
+              "..............................", // r15
+              ".....====================.....", // r16
+              "..............................", // r17
+              "..............................", // r18
+              "..............................", // r19
+              "..========..........========..", // r20
+              "..............................", // r21
+              "..............................", // r22
+              "..............................", // r23
+              "..............................", // r24
+              "..............................", // r25
+              ".............................."  // r26
+            ],
+            enemies: [
+              { type: "pebble", col: 7, row: 6 },
+              { type: "pebble", col: 22, row: 6 },
+              { type: "pebble", col: 15, row: 10 },
+              { type: "pebble", col: 15, row: 15 }
+            ]
+          },
+          {
+            name: "TWIN TOWERS",
+            palette: { main: "#c445b8", hi: "#ff9ef2", sh: "#6c1869", mortar: "#2f0b33", bg: "#17091e" },
+            pits: [[6, 9], [22, 25]],
+            gather: { x: 256, y: 84 },
+            layout: [
+              "..............................", // r3
+              "..............................", // r4
+              "..............................", // r5
+              "..........==========..........", // r6
+              "..............................", // r7
+              "..............................", // r8
+              "..............................", // r9
+              "..======..............======..", // r10
+              "..............................", // r11
+              "..............................", // r12
+              "...........========...........", // r13
+              "..............................", // r14
+              "..............................", // r15
+              "..======..............======..", // r16
+              "..............................", // r17
+              "..............................", // r18
+              ".........============.........", // r19
+              "..............................", // r20
+              "..............................", // r21
+              "..............................", // r22
+              "....======..........======....", // r23
+              "..............................", // r24
+              "..............................", // r25
+              ".............................."  // r26
+            ],
+            enemies: [
+              { type: "pebble", col: 14, row: 5 },
+              { type: "pebble", col: 5, row: 9 },
+              { type: "pebble", col: 25, row: 9 },
+              { type: "spark", col: 15, row: 12 },
+              { type: "spark", col: 15, row: 18 }
+            ]
+          },
+          {
+            name: "DIAMOND CAVERN",
+            palette: { main: "#1fa87a", hi: "#74ffd0", sh: "#0d573e", mortar: "#072b1f", bg: "#061816" },
+            pits: [[13, 18]],
+            gather: { x: 256, y: 84 },
+            layout: [
+              "..............................", // r3
+              "..............................", // r4
+              "..............................", // r5
+              "...........========...........", // r6
+              "..............................", // r7
+              "..............................", // r8
+              "......======......======......", // r9
+              "..............................", // r10
+              "..............................", // r11
+              "..======....======....======..", // r12
+              "..............................", // r13
+              "..............................", // r14
+              "......======......======......", // r15
+              "..............................", // r16
+              "..............................", // r17
+              "...........========...........", // r18
+              "..............................", // r19
+              "..............................", // r20
+              "...=======..........=======...", // r21
+              "..............................", // r22
+              "..............................", // r23
+              "..............................", // r24
+              "..............................", // r25
+              ".............................."  // r26
+            ],
+            enemies: [
+              { type: "pebble", col: 14, row: 5 },
+              { type: "pebble", col: 14, row: 11 },
+              { type: "spark", col: 8, row: 8 },
+              { type: "spark", col: 21, row: 8 },
+              { type: "bat", col: 6, row: 14 },
+              { type: "bat", col: 24, row: 14 }
+            ]
+          },
+          {
+            name: "ZIG-ZAG TERRACES",
+            palette: { main: "#d97b29", hi: "#ffd078", sh: "#7a3b0b", mortar: "#361804", bg: "#1a0e06" },
+            pits: [[13, 18]],
+            gather: { x: 256, y: 82 },
+            layout: [
+              "..............................", // r3
+              "..............................", // r4
+              "..............................", // r5
+              "..============................", // r6
+              "..............................", // r7
+              "..............................", // r8
+              "................============..", // r9
+              "..............................", // r10
+              "..............................", // r11
+              "..============................", // r12
+              "..............................", // r13
+              "..............................", // r14
+              "................============..", // r15
+              "..............................", // r16
+              "..............................", // r17
+              "..============................", // r18
+              "..............................", // r19
+              "..............................", // r20
+              "................============..", // r21
+              "..............................", // r22
+              "..............................", // r23
+              "..............................", // r24
+              "..............................", // r25
+              ".............................."  // r26
+            ],
+            enemies: [
+              { type: "pebble", col: 6, row: 5 },
+              { type: "pebble", col: 23, row: 8 },
+              { type: "spark", col: 8, row: 11 },
+              { type: "spark", col: 22, row: 14 },
+              { type: "spark", col: 8, row: 17 },
+              { type: "bat", col: 24, row: 5 },
+              { type: "bat", col: 15, row: 13 }
+            ]
+          },
+          {
+            name: "GRAND FINALE",
+            palette: { main: "#d93b5b", hi: "#ff99b4", sh: "#75132a", mortar: "#330712", bg: "#190710" },
+            pits: [[13, 18]],
+            gather: { x: 256, y: 80 },
+            layout: [
+              "..............................", // r3
+              "..............................", // r4
+              "..............................", // r5
+              "....======..======..======....", // r6
+              "..............................", // r7
+              "..............................", // r8
+              ".........============.........", // r9
+              "..............................", // r10
+              "..............................", // r11
+              "..======..............======..", // r12
+              "..............................", // r13
+              "..............................", // r14
+              "......==================......", // r15
+              "..............................", // r16
+              "..............................", // r17
+              "..======....======....======..", // r18
+              "..............................", // r19
+              "..............................", // r20
+              "......======......======......", // r21
+              "..............................", // r22
+              "..............................", // r23
+              "..............................", // r24
+              "..............................", // r25
+              ".............................."  // r26
+            ],
+            enemies: [
+              { type: "pebble", col: 7, row: 5 },
+              { type: "pebble", col: 22, row: 5 },
+              { type: "spark", col: 15, row: 8 },
+              { type: "spark", col: 5, row: 11 },
+              { type: "spark", col: 25, row: 11 },
+              { type: "bat", col: 10, row: 14 },
+              { type: "bat", col: 20, row: 14 },
+              { type: "bat", col: 15, row: 4 }
+            ]
+          }
+        ];
+
+        /* =====================================================================
+         * 6. INPUT HANDLING (KEYBOARD + TOUCH + AUTO-PAUSE)
+         * ===================================================================== */
+        const keys = {
+          left: false,
+          right: false,
+          jump: false,
+          jumpJustPressed: false,
+          bubble: false,
+          bubbleJustPressed: false
+        };
+
+        const touchState = { left: false, right: false, jump: false, bubble: false };
+        const keyState = { left: false, right: false, jump: false, bubble: false };
+
+        function syncInputs() {
+          const prevJump = keys.jump;
+          const prevBubble = keys.bubble;
+          keys.left = keyState.left || touchState.left;
+          keys.right = keyState.right || touchState.right;
+          keys.jump = keyState.jump || touchState.jump;
+          keys.bubble = keyState.bubble || touchState.bubble;
+          if (keys.jump && !prevJump) keys.jumpJustPressed = true;
+          if (keys.bubble && !prevBubble) keys.bubbleJustPressed = true;
+        }
+
+        function clearAllInputs() {
+          keyState.left = keyState.right = keyState.jump = keyState.bubble = false;
+          touchState.left = touchState.right = touchState.jump = touchState.bubble = false;
+          keys.left = keys.right = keys.jump = keys.bubble = false;
+          keys.jumpJustPressed = keys.bubbleJustPressed = false;
+          document.querySelectorAll(".tbtn.active").forEach(b => b.classList.remove("active"));
+        }
+
+        window.addEventListener("keydown", (e) => {
+          const code = e.code;
+          if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(code)) {
+            e.preventDefault();
+          }
+
+          audio.unlock();
+
+          if (code === "KeyM") {
+            audio.toggleMute();
+            return;
+          }
+
+          if (code === "KeyP" || code === "Escape") {
+            if (game.mode === "PLAYING") {
+              game.paused = !game.paused;
+              if (game.paused) clearAllInputs();
+            }
+            return;
+          }
+
+          if (game.mode === "TITLE" || game.mode === "GAMEOVER") {
+            if (code === "Enter" || code === "Space") {
+              startNewGame();
+            }
+            return;
+          }
+
+          if (game.paused) {
+            if (code === "Enter" || code === "Space") {
+              game.paused = false;
+            }
+            return;
+          }
+
+          if (code === "ArrowLeft" || code === "KeyA") keyState.left = true;
+          if (code === "ArrowRight" || code === "KeyD") keyState.right = true;
+          if (code === "ArrowUp" || code === "KeyW" || code === "KeyZ") keyState.jump = true;
+          if (code === "Space" || code === "KeyX") keyState.bubble = true;
+          syncInputs();
+        }, { passive: false });
+
+        window.addEventListener("keyup", (e) => {
+          const code = e.code;
+          if (code === "ArrowLeft" || code === "KeyA") keyState.left = false;
+          if (code === "ArrowRight" || code === "KeyD") keyState.right = false;
+          if (code === "ArrowUp" || code === "KeyW" || code === "KeyZ") keyState.jump = false;
+          if (code === "Space" || code === "KeyX") keyState.bubble = false;
+          syncInputs();
+        });
+
+        canvas.addEventListener("pointerdown", () => {
+          audio.unlock();
+          if (game.mode === "TITLE" || game.mode === "GAMEOVER") {
+            startNewGame();
+          } else if (game.mode === "PLAYING" && game.paused) {
+            game.paused = false;
+          }
+        });
+
+        // Touch button wiring (supports multi-touch cleanly)
+        document.querySelectorAll(".tbtn").forEach((btn) => {
+          const action = btn.dataset.action;
+          const activePointers = new Set();
+
+          const press = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            audio.unlock();
+            if (action === "pause") {
+              if (game.mode === "PLAYING") game.paused = !game.paused;
+              return;
+            }
+            if (action === "mute") {
+              audio.toggleMute();
+              return;
+            }
+            if (game.mode === "TITLE" || game.mode === "GAMEOVER") {
+              startNewGame();
+              return;
+            }
+            activePointers.add(e.pointerId);
+            btn.classList.add("active");
+            touchState[action] = true;
+            syncInputs();
+          };
+
+          const release = (e) => {
+            e.preventDefault();
+            activePointers.delete(e.pointerId);
+            if (activePointers.size === 0) {
+              btn.classList.remove("active");
+              if (action in touchState) {
+                touchState[action] = false;
+                syncInputs();
+              }
+            }
+          };
+
+          btn.addEventListener("pointerdown", press, { passive: false });
+          btn.addEventListener("pointerup", release, { passive: false });
+          btn.addEventListener("pointercancel", release, { passive: false });
+          btn.addEventListener("pointerleave", release, { passive: false });
+        });
+
+        // Auto-pause on blur & visibility loss
+        window.addEventListener("blur", () => {
+          if (game.mode === "PLAYING" && !game.paused) {
+            game.paused = true;
+          }
+          clearAllInputs();
+        });
+
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden && game.mode === "PLAYING" && !game.paused) {
+            game.paused = true;
+            clearAllInputs();
+          }
+        });
+
+        /* =====================================================================
+         * 7. GAME STATE, TILE GRID & LEVEL LOADER
+         * ===================================================================== */
+        const game = {
+          mode: "TITLE", // TITLE, PLAYING, GAMEOVER
+          paused: false,
+          score: 0,
+          highScore: loadHighScore(),
+          lives: 3,
+          stageNum: 1,
+          grid: [], // 28 x 32: 0=empty, 1=solid wall/floor/ceil, 2=one-way platform
+          stageDef: STAGES[0],
+          stageTime: 0,
+          hurryTriggered: false,
+          hurryBannerTimer: 0,
+          stageClearTimer: 0,
+          stageBannerTimer: 0,
+          extraLifeAwarded: false,
+          player: null,
+          enemies: [],
+          bubbles: [],
+          fruits: [],
+          sparks: [],
+          particles: [],
+          popups: [],
+          grim: null,
+          // Attract screen animations
+          attractTime: 0,
+          attractStars: [],
+          attractBubbles: []
+        };
+
+        // Populate attract-screen starfield & decorative bubbles immediately
+        for (let i = 0; i < 42; i++) {
+          game.attractStars.push({
+            x: Math.random() * WIDTH,
+            y: Math.random() * HEIGHT,
+            phase: Math.random() * Math.PI * 2,
+            speed: 1.5 + Math.random() * 2.5,
+            size: Math.random() < 0.3 ? 2 : 1
+          });
+        }
+        for (let i = 0; i < 16; i++) {
+          game.attractBubbles.push({
+            x: 36 + Math.random() * (WIDTH - 72),
+            y: Math.random() * HEIGHT,
+            r: 8 + Math.random() * 10,
+            vy: 20 + Math.random() * 26,
+            wobble: Math.random() * Math.PI * 2,
+            hue: Math.random() * 360
+          });
+        }
+
+        function addScore(pts) {
+          game.score += pts;
+          if (game.score > game.highScore) {
+            game.highScore = game.score;
+            saveHighScore(game.highScore);
+          }
+          if (!game.extraLifeAwarded && game.score >= 30000) {
+            game.extraLifeAwarded = true;
+            game.lives = Math.min(5, game.lives + 1);
+            spawnPopup(game.player ? game.player.x + 8 : WIDTH / 2, (game.player ? game.player.y : 200) - 10, "1UP!", "#38ff99");
+            audio.sfxStageClear();
+          }
+        }
+
+        function isPitCol(col, pits) {
+          for (let i = 0; i < pits.length; i++) {
+            if (col >= pits[i][0] && col <= pits[i][1]) return true;
+          }
+          return false;
+        }
+
+        function buildStageGrid(stageDef) {
+          const grid = Array.from({ length: ROWS }, () => new Uint8Array(COLS));
+          for (let r = 2; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+              if (c === 0 || c === COLS - 1) {
+                grid[r][c] = 1; // Solid side walls
+              } else if (r === 2 || r === ROWS - 1) {
+                grid[r][c] = isPitCol(c, stageDef.pits) ? 0 : 1; // Ceiling & floor with wrap pits
+              } else {
+                const layoutRow = stageDef.layout[r - 3];
+                const ch = layoutRow ? layoutRow[c - 1] : ".";
+                grid[r][c] = ch === "=" ? 2 : 0;
+              }
+            }
+          }
+          return grid;
+        }
+
+        function getTile(col, row) {
+          if (col < 0 || col >= COLS) return 1;
+          if (row < 2 || row >= ROWS) return 0;
+          return game.grid[row][col];
+        }
+
+        function createPlayer() {
+          return {
+            x: 48,
+            y: (ROWS - 2) * TILE - 16,
+            w: 14,
+            h: 16,
+            vx: 0,
+            vy: 0,
+            dir: 1,
+            onGround: false,
+            animTimer: 0,
+            blowTimer: 0,
+            blowCooldown: 0,
+            invulnTimer: 2.0,
+            coyoteTimer: 0
+          };
+        }
+
+        function createEnemy(spec, loopNum) {
+          const speedBoost = 1 + (loopNum - 1) * 0.14;
+          const x = spec.col * TILE;
+          const y = (spec.row + 3) * TILE;
+          const dir = x < WIDTH / 2 ? 1 : -1;
+          return {
+            type: spec.type,
+            x,
+            y,
+            w: 14,
+            h: 16,
+            vx: spec.type === "bat" ? dir * 74 * speedBoost : dir * (spec.type === "spark" ? 72 : 56) * speedBoost,
+            vy: spec.type === "bat" ? (Math.random() < 0.5 ? -58 : 58) * speedBoost : 0,
+            dir,
+            onGround: false,
+            angry: false,
+            speedBoost,
+            animTimer: Math.random() * 2,
+            aiTimer: 0.8 + Math.random() * 1.4,
+            shootTimer: 2.0 + Math.random() * 2.0
+          };
+        }
+
+        function loadStage(stageNum) {
+          const idx = (stageNum - 1) % STAGES.length;
+          const loopNum = Math.floor((stageNum - 1) / STAGES.length) + 1;
+          game.stageNum = stageNum;
+          game.stageDef = STAGES[idx];
+          game.grid = buildStageGrid(game.stageDef);
+          game.stageTime = 0;
+          game.hurryTriggered = false;
+          game.hurryBannerTimer = 0;
+          game.stageClearTimer = 0;
+          game.stageBannerTimer = 2.0;
+          game.bubbles = [];
+          game.fruits = [];
+          game.sparks = [];
+          game.particles = [];
+          game.popups = [];
+          game.grim = null;
+          game.player = createPlayer();
+          game.enemies = game.stageDef.enemies.map(spec => createEnemy(spec, loopNum));
+        }
+
+        function startNewGame() {
+          game.mode = "PLAYING";
+          game.paused = false;
+          game.score = 0;
+          game.lives = 3;
+          game.extraLifeAwarded = false;
+          audio.bgmStep = 0;
+          audio.bgmTimer = 0;
+          clearAllInputs();
+          loadStage(1);
+        }
+
+        /* =====================================================================
+         * 8. PHYSICS, COLLISIONS, BUBBLES & ENTITY UPDATES
+         * ===================================================================== */
+        const GRAVITY = 780;
+        const MAX_FALL = 310;
+        const PLAYER_SPEED = 132;
+        const PLAYER_JUMP = -335;
+        const BUBBLE_BOUNCE = -378;
+
+        function aabbOverlap(a, b, pad = 0) {
+          return (
+            a.x + pad < b.x + b.w - pad &&
+            a.x + a.w - pad > b.x + pad &&
+            a.y + pad < b.y + b.h - pad &&
+            a.y + a.h - pad > b.y + pad
+          );
+        }
+
+        function moveEntityPlatformer(ent, dt, canPassOneWay = true) {
+          // Horizontal move + solid wall collision
+          ent.x += ent.vx * dt;
+          if (ent.vx > 0) {
+            const rightCol = Math.floor((ent.x + ent.w) / TILE);
+            const topRow = Math.floor((ent.y + 1) / TILE);
+            const botRow = Math.floor((ent.y + ent.h - 1) / TILE);
+            if (getTile(rightCol, topRow) === 1 || getTile(rightCol, botRow) === 1) {
+              ent.x = rightCol * TILE - ent.w - 0.01;
+              return "wallRight";
+            }
+          } else if (ent.vx < 0) {
+            const leftCol = Math.floor(ent.x / TILE);
+            const topRow = Math.floor((ent.y + 1) / TILE);
+            const botRow = Math.floor((ent.y + ent.h - 1) / TILE);
+            if (getTile(leftCol, topRow) === 1 || getTile(leftCol, botRow) === 1) {
+              ent.x = (leftCol + 1) * TILE + 0.01;
+              return "wallLeft";
+            }
+          }
+
+          // Vertical move + gravity
+          const prevBottom = ent.y + ent.h;
+          ent.vy = Math.min(MAX_FALL, ent.vy + GRAVITY * dt);
+          ent.y += ent.vy * dt;
+          ent.onGround = false;
+
+          const leftCol = Math.floor((ent.x + 2) / TILE);
+          const rightCol = Math.floor((ent.x + ent.w - 2) / TILE);
+
+          if (ent.vy >= 0) {
+            const botRow = Math.floor((ent.y + ent.h) / TILE);
+            for (let c = leftCol; c <= rightCol; c++) {
+              const t = getTile(c, botRow);
+              if (t === 1 || (t === 2 && canPassOneWay && prevBottom <= botRow * TILE + 3)) {
+                ent.y = botRow * TILE - ent.h;
+                ent.vy = 0;
+                ent.onGround = true;
+                break;
+              }
+            }
+          } else if (ent.vy < 0) {
+            // Solid ceiling blocks upward motion (except pit openings which are tile 0)
+            const topRow = Math.floor(ent.y / TILE);
+            for (let c = leftCol; c <= rightCol; c++) {
+              if (getTile(c, topRow) === 1) {
+                ent.y = (topRow + 1) * TILE;
+                ent.vy = 0;
+                break;
+              }
+            }
+          }
+
+          // Classic arcade wrap-around pit (bottom -> top)
+          if (ent.y > HEIGHT) {
+            ent.y = HUD_HEIGHT;
+          } else if (ent.y + ent.h < HUD_HEIGHT) {
+            ent.y = HUD_HEIGHT;
+            if (ent.vy < 0) ent.vy = 0;
+          }
+
+          return null;
+        }
+
+        function spawnParticles(x, y, color, count = 8) {
+          for (let i = 0; i < count; i++) {
+            const ang = (Math.PI * 2 * i) / count + Math.random() * 0.5;
+            const spd = 45 + Math.random() * 110;
+            game.particles.push({
+              x,
+              y,
+              vx: Math.cos(ang) * spd,
+              vy: Math.sin(ang) * spd - 30,
+              life: 0.32 + Math.random() * 0.25,
+              maxLife: 0.55,
+              color,
+              size: Math.random() < 0.5 ? 2 : 3
+            });
+          }
+        }
+
+        function spawnPopup(x, y, text, color = "#ffffff") {
+          game.popups.push({
+            x: Math.max(28, Math.min(WIDTH - 28, x)),
+            y: Math.max(HUD_HEIGHT + 12, y),
+            text,
+            color,
+            life: 1.05
+          });
+        }
+
+        function blowBubble() {
+          const p = game.player;
+          if (p.blowCooldown > 0) return;
+          p.blowCooldown = 0.22;
+          p.blowTimer = 0.16;
+          audio.sfxBubble();
+
+          const bx = p.dir > 0 ? p.x + p.w + 1 : p.x - 16;
+          const by = p.y;
+          game.bubbles.push({
+            x: bx,
+            y: by,
+            r: 9,
+            vx: p.dir * 330,
+            vy: 0,
+            fastTimer: 0.28,
+            life: 9.0,
+            trapped: null,
+            wobble: Math.random() * Math.PI * 2,
+            popped: false
+          });
+        }
+
+        function spawnFruitFromEnemy(x, y) {
+          const idx = Math.floor(Math.random() * FRUIT_SPRITES.length);
+          const def = FRUIT_SPRITES[idx];
+          game.fruits.push({
+            x: Math.max(20, Math.min(WIDTH - 36, x)),
+            y: Math.max(HUD_HEIGHT + 16, y),
+            w: 14,
+            h: 14,
+            vx: (Math.random() - 0.5) * 90,
+            vy: -195 - Math.random() * 55,
+            onGround: false,
+            idx,
+            points: def.points,
+            life: 10.0,
+            bob: Math.random() * Math.PI * 2
+          });
+        }
+
+        function popBubbleChain(startBubble) {
+          if (startBubble.popped) return;
+          const queue = [startBubble];
+          const poppedList = [];
+          startBubble.popped = true;
+
+          // BFS for touching bubbles within chain pop distance
+          while (queue.length > 0) {
+            const cur = queue.shift();
+            poppedList.push(cur);
+            const cx = cur.x + cur.r;
+            const cy = cur.y + cur.r;
+            for (let i = 0; i < game.bubbles.length; i++) {
+              const other = game.bubbles[i];
+              if (other.popped) continue;
+              const ox = other.x + other.r;
+              const oy = other.y + other.r;
+              const dist = Math.hypot(cx - ox, cy - oy);
+              if (dist <= 38) {
+                other.popped = true;
+                queue.push(other);
+              }
+            }
+          }
+
+          let trappedCount = 0;
+          let sumX = 0;
+          let sumY = 0;
+
+          poppedList.forEach((b, idx) => {
+            const cx = b.x + b.r;
+            const cy = b.y + b.r;
+            spawnParticles(cx, cy, b.trapped ? "#ff77cc" : "#56f6ff", b.trapped ? 12 : 7);
+            if (b.trapped) {
+              trappedCount++;
+              sumX += cx;
+              sumY += cy;
+              spawnFruitFromEnemy(b.x, b.y);
+            }
+            audio.sfxPop(trappedCount > 0 ? trappedCount - 1 : idx);
+          });
+
+          if (trappedCount > 0) {
+            const chainPts = 1000 * Math.pow(2, Math.min(trappedCount - 1, 4)); // 1000, 2000, 4000, 8000, 16000
+            addScore(chainPts);
+            const avgX = sumX / trappedCount;
+            const avgY = sumY / trappedCount;
+            const col = trappedCount >= 3 ? "#ffe84d" : trappedCount === 2 ? "#ff77cc" : "#56f6ff";
+            spawnPopup(avgX, avgY - 4, String(chainPts), col);
+            if (trappedCount >= 2) {
+              spawnPopup(avgX, avgY - 18, trappedCount + "X CHAIN!", "#ffffff");
+            }
+          } else {
+            addScore(10);
+          }
+
+          game.bubbles = game.bubbles.filter(b => !b.popped);
+        }
+
+        function damagePlayer() {
+          const p = game.player;
+          if (p.invulnTimer > 0 || game.stageClearTimer > 0) return;
+          audio.sfxHurt();
+          spawnParticles(p.x + p.w / 2, p.y + p.h / 2, "#38f2ff", 16);
+          game.lives--;
+          if (game.lives <= 0) {
+            game.mode = "GAMEOVER";
+            audio.sfxGameOver();
+            clearAllInputs();
+            return;
+          }
+          // Respawn Belle cleanly at starting ledge with invulnerability blink
+          p.x = 48;
+          p.y = (ROWS - 2) * TILE - 16;
+          p.vx = 0;
+          p.vy = 0;
+          p.dir = 1;
+          p.invulnTimer = 2.6;
+          // Push Grim-Float away if present
+          if (game.grim) {
+            game.grim.x = WIDTH - 48;
+            game.grim.y = 64;
+          }
+        }
+
+        function updatePlayer(dt) {
+          const p = game.player;
+          if (p.invulnTimer > 0) p.invulnTimer = Math.max(0, p.invulnTimer - dt);
+          if (p.blowTimer > 0) p.blowTimer = Math.max(0, p.blowTimer - dt);
+          if (p.blowCooldown > 0) p.blowCooldown = Math.max(0, p.blowCooldown - dt);
+
+          // Horizontal control
+          p.vx = 0;
+          if (keys.left && !keys.right) {
+            p.vx = -PLAYER_SPEED;
+            p.dir = -1;
+            p.animTimer += dt * 10;
+          } else if (keys.right && !keys.left) {
+            p.vx = PLAYER_SPEED;
+            p.dir = 1;
+            p.animTimer += dt * 10;
+          }
+
+          // Coyote time for responsive arcade jumps
+          if (p.onGround) p.coyoteTimer = 0.09;
+          else p.coyoteTimer = Math.max(0, p.coyoteTimer - dt);
+
+          if (keys.jumpJustPressed && p.coyoteTimer > 0) {
+            p.vy = PLAYER_JUMP;
+            p.onGround = false;
+            p.coyoteTimer = 0;
+            audio.sfxJump();
+          }
+
+          if (keys.bubbleJustPressed) {
+            blowBubble();
+          }
+
+          moveEntityPlatformer(p, dt, true);
+        }
+
+        function updateBubbles(dt) {
+          const p = game.player;
+          const gather = game.stageDef.gather;
+
+          for (let i = game.bubbles.length - 1; i >= 0; i--) {
+            const b = game.bubbles[i];
+            if (b.popped) continue;
+
+            b.wobble += dt * 5.2;
+            b.life -= dt;
+
+            if (b.fastTimer > 0) {
+              b.fastTimer -= dt;
+              b.x += b.vx * dt;
+              // Stop fast flight if hitting solid side walls
+              if (b.x < TILE + 1) {
+                b.x = TILE + 1;
+                b.fastTimer = 0;
+              } else if (b.x + b.r * 2 > WIDTH - TILE - 1) {
+                b.x = WIDTH - TILE - 1 - b.r * 2;
+                b.fastTimer = 0;
+              }
+
+              // Capture enemies during fast initial flight
+              if (!b.trapped) {
+                const bBox = { x: b.x, y: b.y, w: b.r * 2, h: b.r * 2 };
+                for (let j = game.enemies.length - 1; j >= 0; j--) {
+                  const en = game.enemies[j];
+                  if (aabbOverlap(bBox, en, 1)) {
+                    b.trapped = en;
+                    b.fastTimer = 0;
+                    b.life = 7.5; // 7.5s before enemy breaks free angry
+                    game.enemies.splice(j, 1);
+                    audio.sfxTrap();
+                    spawnParticles(b.x + b.r, b.y + b.r, "#ffffff", 6);
+                    break;
+                  }
+                }
+              }
+            } else {
+              // Gentle floating along cavern air currents toward gather pocket
+              const cx = b.x + b.r;
+              const cy = b.y + b.r;
+              const dx = gather.x - cx;
+              const dy = gather.y - cy;
+
+              b.vx += (Math.sign(dx) * Math.min(28, Math.abs(dx) * 0.45) - b.vx) * dt * 2.5;
+              const targetVy = cy > gather.y + 8 ? -36 : (dy * 0.6);
+              b.vy += (targetVy - b.vy) * dt * 2.4;
+
+              // Gentle bubble-to-bubble separation so clusters look full and readable
+              for (let k = 0; k < game.bubbles.length; k++) {
+                if (k === i) continue;
+                const ob = game.bubbles[k];
+                if (ob.popped || ob.fastTimer > 0) continue;
+                const ox = ob.x + ob.r;
+                const oy = ob.y + ob.r;
+                const sdx = cx - ox;
+                const sdy = cy - oy;
+                const dist = Math.hypot(sdx, sdy);
+                if (dist > 0.1 && dist < 21) {
+                  const push = (21 - dist) * 2.2;
+                  b.x += (sdx / dist) * push * dt;
+                  b.y += (sdy / dist) * push * dt;
+                }
+              }
+
+              b.x += (b.vx + Math.sin(b.wobble) * 14) * dt;
+              b.y += b.vy * dt;
+
+              // Keep inside cavern bounds
+              b.x = Math.max(TILE + 2, Math.min(WIDTH - TILE - b.r * 2 - 2, b.x));
+              b.y = Math.max(HUD_HEIGHT + TILE + 2, Math.min(HEIGHT - TILE - b.r * 2 - 2, b.y));
+            }
+
+            // Expiration check
+            if (b.life <= 0) {
+              if (b.trapped) {
+                // Enemy breaks free in ANGRY faster state!
+                const en = b.trapped;
+                en.x = b.x;
+                en.y = b.y;
+                en.angry = true;
+                en.vx = (en.dir || 1) * (en.type === "bat" ? 105 : 96) * en.speedBoost;
+                if (en.type === "bat") en.vy = -85 * en.speedBoost;
+                else en.vy = -120;
+                game.enemies.push(en);
+                spawnParticles(b.x + b.r, b.y + b.r, "#ff4433", 10);
+                audio.sfxSpark();
+              } else {
+                spawnParticles(b.x + b.r, b.y + b.r, "#56f6ff", 4);
+              }
+              b.popped = true;
+              continue;
+            }
+
+            // Player interaction with floating bubbles
+            if (b.fastTimer <= 0.08) {
+              const bBox = { x: b.x, y: b.y, w: b.r * 2, h: b.r * 2 };
+              if (aabbOverlap(p, bBox, 0)) {
+                // Bubble bouncing on EMPTY bubble when falling onto top half while holding Jump
+                const landingOnTop = p.vy >= 0 && (p.y + p.h) <= (b.y + b.r + 5);
+                if (!b.trapped && landingOnTop && keys.jump) {
+                  p.y = b.y - p.h;
+                  p.vy = BUBBLE_BOUNCE;
+                  p.onGround = false;
+                  b.y += 4; // squishy recoil
+                  audio.sfxBounce();
+                } else if (b.trapped || b.fastTimer <= 0) {
+                  popBubbleChain(b);
+                }
+              }
+            }
+          }
+
+          game.bubbles = game.bubbles.filter(b => !b.popped);
+        }
+
+        function updateEnemies(dt) {
+          const p = game.player;
+          for (let i = 0; i < game.enemies.length; i++) {
+            const en = game.enemies[i];
+            en.animTimer += dt * (en.angry ? 12 : 7);
+
+            if (en.type === "bat") {
+              // Gloop-Bat: floats diagonally and bounces off walls & platforms
+              const spdMult = en.angry ? 1.38 : 1.0;
+              en.x += en.vx * dt;
+              const colL = Math.floor(en.x / TILE);
+              const colR = Math.floor((en.x + en.w) / TILE);
+              const rowMid = Math.floor((en.y + en.h / 2) / TILE);
+              if (en.vx < 0 && getTile(colL, rowMid) === 1) {
+                en.x = (colL + 1) * TILE;
+                en.vx = Math.abs(en.vx);
+              } else if (en.vx > 0 && getTile(colR, rowMid) === 1) {
+                en.x = colR * TILE - en.w;
+                en.vx = -Math.abs(en.vx);
+              }
+              en.dir = en.vx >= 0 ? 1 : -1;
+
+              en.y += en.vy * dt;
+              const topRow = Math.floor(en.y / TILE);
+              const botRow = Math.floor((en.y + en.h) / TILE);
+              const colMid = Math.floor((en.x + en.w / 2) / TILE);
+              if (en.vy < 0 && (getTile(colMid, topRow) !== 0 || en.y < HUD_HEIGHT + TILE)) {
+                en.y = Math.max(HUD_HEIGHT + TILE, (topRow + 1) * TILE);
+                en.vy = Math.abs(en.vy);
+              } else if (en.vy > 0 && (getTile(colMid, botRow) !== 0 || en.y + en.h > HEIGHT - TILE)) {
+                en.y = Math.min(HEIGHT - TILE - en.h, botRow * TILE - en.h);
+                en.vy = -Math.abs(en.vy);
+              }
+              // Slight homing nudge if angry
+              if (en.angry) {
+                en.vx = Math.sign(en.vx || 1) * 74 * en.speedBoost * spdMult;
+              }
+            } else {
+              // Pebble-Bot & Spark-Imp platformer AI
+              const baseSpd = (en.type === "spark" ? 74 : 58) * en.speedBoost * (en.angry ? 1.45 : 1.0);
+              en.vx = en.dir * baseSpd;
+
+              const hitWall = moveEntityPlatformer(en, dt, true);
+              if (hitWall === "wallRight") en.dir = -1;
+              else if (hitWall === "wallLeft") en.dir = 1;
+
+              en.aiTimer -= dt;
+              if (en.onGround && en.aiTimer <= 0) {
+                en.aiTimer = en.angry ? 0.55 + Math.random() * 0.6 : 1.0 + Math.random() * 1.1;
+                // Jump up toward Belle if she is higher, or occasionally hop randomly
+                if (p.y + 20 < en.y && Math.random() < 0.72) {
+                  en.vy = en.type === "spark" ? -335 : -315;
+                  en.onGround = false;
+                  en.dir = p.x >= en.x ? 1 : -1;
+                } else if (Math.random() < 0.25) {
+                  en.dir = p.x >= en.x ? 1 : -1;
+                  if (en.type === "spark") {
+                    en.vy = -270;
+                    en.onGround = false;
+                  }
+                }
+              }
+
+              // Spark-Imp periodically fires a slow glowing spark horizontally
+              if (en.type === "spark") {
+                en.shootTimer -= dt * (en.angry ? 1.45 : 1.0);
+                if (en.shootTimer <= 0 && en.onGround) {
+                  en.shootTimer = 2.6 + Math.random() * 1.8;
+                  const shootDir = p.x >= en.x ? 1 : -1;
+                  en.dir = shootDir;
+                  game.sparks.push({
+                    x: en.x + (shootDir > 0 ? en.w : -6),
+                    y: en.y + 5,
+                    w: 7,
+                    h: 7,
+                    vx: shootDir * (en.angry ? 155 : 122),
+                    life: 4.0
+                  });
+                  audio.sfxSpark();
+                }
+              }
+            }
+
+            // Player collision with active enemy
+            if (aabbOverlap(p, en, 2)) {
+              damagePlayer();
+            }
+          }
+        }
+
+        function updateSparks(dt) {
+          const p = game.player;
+          for (let i = game.sparks.length - 1; i >= 0; i--) {
+            const s = game.sparks[i];
+            s.x += s.vx * dt;
+            s.life -= dt;
+            const col = Math.floor((s.x + s.w / 2) / TILE);
+            const row = Math.floor((s.y + s.h / 2) / TILE);
+            if (s.life <= 0 || getTile(col, row) === 1) {
+              spawnParticles(s.x + 3, s.y + 3, "#38f2ff", 5);
+              game.sparks.splice(i, 1);
+              continue;
+            }
+            if (aabbOverlap(p, s, 1)) {
+              game.sparks.splice(i, 1);
+              damagePlayer();
+            }
+          }
+        }
+
+        function updateFruits(dt) {
+          const p = game.player;
+          for (let i = game.fruits.length - 1; i >= 0; i--) {
+            const f = game.fruits[i];
+            f.life -= dt;
+            f.bob += dt * 6;
+            if (!f.onGround) {
+              moveEntityPlatformer(f, dt, true);
+              if (f.onGround) f.vx = 0;
+            }
+            if (aabbOverlap(p, f, 0)) {
+              addScore(f.points);
+              spawnPopup(f.x + 7, f.y - 4, "+" + f.points, "#ffe84d");
+              spawnParticles(f.x + 7, f.y + 7, "#ffe84d", 8);
+              audio.sfxFruit();
+              game.fruits.splice(i, 1);
+              continue;
+            }
+            if (f.life <= 0) {
+              game.fruits.splice(i, 1);
+            }
+          }
+        }
+
+        function updateGrimFloat(dt) {
+          if (!game.grim) return;
+          const g = game.grim;
+          const p = game.player;
+          g.animTimer += dt * 6;
+          const dx = (p.x + p.w / 2) - (g.x + g.w / 2);
+          const dy = (p.y + p.h / 2) - (g.y + g.h / 2);
+          const dist = Math.hypot(dx, dy) || 1;
+          const spd = 46;
+          g.x += (dx / dist) * spd * dt;
+          g.y += (dy / dist) * spd * dt;
+          g.dir = dx >= 0 ? 1 : -1;
+
+          if (aabbOverlap(p, g, 3)) {
+            damagePlayer();
+          }
+        }
+
+        function updateEffects(dt) {
+          for (let i = game.particles.length - 1; i >= 0; i--) {
+            const pt = game.particles[i];
+            pt.x += pt.vx * dt;
+            pt.y += pt.vy * dt;
+            pt.vy += 220 * dt;
+            pt.life -= dt;
+            if (pt.life <= 0) game.particles.splice(i, 1);
+          }
+          for (let i = game.popups.length - 1; i >= 0; i--) {
+            const pop = game.popups[i];
+            pop.y -= 26 * dt;
+            pop.life -= dt;
+            if (pop.life <= 0) game.popups.splice(i, 1);
+          }
+        }
+
+        function updateAttract(dt) {
+          game.attractTime += dt;
+          for (let i = 0; i < game.attractBubbles.length; i++) {
+            const b = game.attractBubbles[i];
+            b.y -= b.vy * dt;
+            b.wobble += dt * 2.2;
+            if (b.y + b.r < -10) {
+              b.y = HEIGHT + b.r + 6;
+              b.x = 36 + Math.random() * (WIDTH - 72);
+            }
+          }
+        }
+
+        function updatePlaying(dt) {
+          if (game.paused) return;
+
+          if (game.stageBannerTimer > 0) game.stageBannerTimer = Math.max(0, game.stageBannerTimer - dt);
+          if (game.hurryBannerTimer > 0) game.hurryBannerTimer = Math.max(0, game.hurryBannerTimer - dt);
+
+          audio.updateBgm(dt, game.hurryTriggered);
+
+          updatePlayer(dt);
+          updateBubbles(dt);
+          updateEnemies(dt);
+          updateSparks(dt);
+          updateFruits(dt);
+          updateGrimFloat(dt);
+          updateEffects(dt);
+
+          // Check stage clear condition (no active enemies AND no trapped enemies)
+          const trappedRemaining = game.bubbles.some(b => b.trapped !== null);
+          if (game.enemies.length === 0 && !trappedRemaining) {
+            if (game.stageClearTimer === 0) {
+              game.stageClearTimer = 3.5; // 3.5s victory window to collect remaining fruit
+              game.grim = null;
+              game.sparks = [];
+              audio.sfxStageClear();
+              spawnPopup(WIDTH / 2, 175, "STAGE CLEAR!", "#38ff99");
+            } else {
+              game.stageClearTimer -= dt;
+              if (game.stageClearTimer <= 0) {
+                loadStage(game.stageNum + 1);
+              }
+            }
+          } else {
+            // Stage timer & HURRY UP! at ~45 seconds
+            game.stageTime += dt;
+            if (!game.hurryTriggered && game.stageTime >= 45) {
+              game.hurryTriggered = true;
+              game.hurryBannerTimer = 2.6;
+              audio.sfxHurry();
+              game.grim = {
+                x: WIDTH - 48,
+                y: 56,
+                w: 14,
+                h: 14,
+                dir: -1,
+                animTimer: 0
+              };
+            }
+          }
+
+          // Clear single-frame edge triggers
+          keys.jumpJustPressed = false;
+          keys.bubbleJustPressed = false;
+        }
+
+        /* =====================================================================
+         * 9. RETRO RENDERING (TILES, SPRITES, BUBBLES, HUD & OVERLAYS)
+         * ===================================================================== */
+        function drawBrickTile(x, y, pal, isPlatform) {
+          ctx.fillStyle = pal.main;
+          ctx.fillRect(x, y, TILE, TILE);
+          // Top & left highlight
+          ctx.fillStyle = pal.hi;
+          ctx.fillRect(x, y, TILE, 2);
+          ctx.fillRect(x, y, 2, TILE);
+          // Bottom & right shadow
+          ctx.fillStyle = pal.sh;
+          ctx.fillRect(x, y + TILE - 2, TILE, 2);
+          ctx.fillRect(x + TILE - 2, y, 2, TILE);
+          // Mortar lines for classic stone-block texture
+          ctx.fillStyle = pal.mortar;
+          if (isPlatform) {
+            ctx.fillRect(x + 2, y + 7, TILE - 4, 1);
+            ctx.fillRect(x + 7, y + 2, 1, 5);
+            ctx.fillRect(x + 3, y + 8, 1, 6);
+            ctx.fillRect(x + 11, y + 8, 1, 6);
+          } else {
+            ctx.fillRect(x + 4, y + 4, 8, 8);
+            ctx.fillStyle = pal.sh;
+            ctx.fillRect(x + 5, y + 5, 6, 6);
+          }
+        }
+
+        function drawIridescentBubble(cx, cy, r, wobble, dangerFlash = false) {
+          const rx = r + Math.sin(wobble) * 0.7;
+          const ry = r - Math.sin(wobble) * 0.7;
+
+          // Translucent fill
+          ctx.save();
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+          if (dangerFlash) {
+            ctx.fillStyle = "rgba(255, 55, 70, 0.34)";
+            ctx.strokeStyle = "#ff4455";
+          } else {
+            ctx.fillStyle = "rgba(56, 242, 255, 0.22)";
+            ctx.strokeStyle = "#5ef8ff";
+          }
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Iridescent pink rim arc
+          ctx.beginPath();
+          ctx.arc(cx, cy, Math.max(2, r - 2), 0.3, 1.5);
+          ctx.strokeStyle = dangerFlash ? "#ffcc55" : "#ff66cc";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          // Crisp pixel specular shine
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(Math.round(cx - r * 0.48), Math.round(cy - r * 0.48), 3, 2);
+          ctx.fillRect(Math.round(cx - r * 0.56), Math.round(cy - r * 0.22), 2, 2);
+          ctx.restore();
+        }
+
+        function drawHUD() {
+          ctx.fillStyle = "#04060f";
+          ctx.fillRect(0, 0, WIDTH, HUD_HEIGHT);
+          ctx.fillStyle = "#1c2d54";
+          ctx.fillRect(0, HUD_HEIGHT - 2, WIDTH, 2);
+
+          // 1UP Score
+          drawPixelText("1UP", 14, 4, 1, "#38f2ff");
+          drawPixelText(String(game.score).padStart(7, "0"), 14, 16, 1, "#ffffff");
+
+          // HIGH SCORE
+          drawPixelText("HIGH SCORE", WIDTH / 2, 4, 1, "#ff55aa", "center");
+          drawPixelText(String(game.highScore).padStart(7, "0"), WIDTH / 2, 16, 1, "#ffe84d", "center");
+
+          // STAGE
+          drawPixelText("STG " + String(game.stageNum).padStart(2, "0"), WIDTH - 14, 4, 1, "#55ffaa", "right");
+
+          // Lives (mini dragon icons)
+          for (let i = 0; i < game.lives; i++) {
+            ctx.drawImage(SPRITES.belle.life, WIDTH - 94 + i * 12, 16);
+          }
+
+          // Mute indicator
+          if (audio.muted) {
+            drawPixelText("MUTE", WIDTH - 110, 4, 1, "#ff6666", "right");
+          }
+        }
+
+        function renderTitleScreen() {
+          const t = game.attractTime;
+
+          // Deep arcade cavern night sky
+          ctx.fillStyle = "#070b1c";
+          ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+          // Twinkling stars
+          for (let i = 0; i < game.attractStars.length; i++) {
+            const s = game.attractStars[i];
+            const b = 0.4 + 0.6 * Math.abs(Math.sin(t * s.speed + s.phase));
+            ctx.fillStyle = `rgba(180, 235, 255, ${b.toFixed(2)})`;
+            ctx.fillRect(Math.round(s.x), Math.round(s.y), s.size, s.size);
+          }
+
+          // Decorative retro brick border frame
+          const pal = STAGES[0].palette;
+          for (let c = 0; c < COLS; c++) {
+            drawBrickTile(c * TILE, HEIGHT - TILE, pal, false);
+          }
+          for (let r = 2; r < ROWS - 1; r++) {
+            drawBrickTile(0, r * TILE, pal, false);
+            drawBrickTile((COLS - 1) * TILE, r * TILE, pal, false);
+          }
+
+          // Mini decorative platform ledges
+          for (let c = 5; c <= 11; c++) drawBrickTile(c * TILE, 344, pal, true);
+          for (let c = 20; c <= 26; c++) drawBrickTile(c * TILE, 344, pal, true);
+
+          // Drifting iridescent bubbles
+          for (let i = 0; i < game.attractBubbles.length; i++) {
+            const b = game.attractBubbles[i];
+            const bx = b.x + Math.sin(b.wobble) * 10;
+            drawIridescentBubble(bx, b.y, b.r, b.wobble, false);
+          }
+
+          // Top HUD bar preview
+          drawPixelText("HIGH SCORE " + String(game.highScore).padStart(7, "0"), WIDTH / 2, 12, 1, "#ffe84d", "center", "#3a1c00");
+
+          // Pixel-art BORREL BELLE logo with floating wave
+          const bob = Math.round(Math.sin(t * 3.2) * 4);
+          drawPixelText("BORREL", WIDTH / 2, 56 + bob, 5, "#38f2ff", "center", "#103578");
+          drawPixelText("BELLE", WIDTH / 2, 102 - bob, 5, "#ff4da6", "center", "#5c0c3c");
+          drawPixelText("RETRO BUBBLE ARCADE - 1986", WIDTH / 2, 152, 1, "#9ef8ff", "center");
+
+          // Animated Borrel Belle dragon sprite on left platform + blowing mini bubble
+          const belleFrame = Math.floor(t * 6) % 2 === 0 ? SPRITES.belle.walk1.R : SPRITES.belle.walk2.R;
+          const belleX = 112 + Math.sin(t * 1.8) * 28;
+          const belleJump = Math.max(0, Math.sin(t * 3.6)) * 14;
+          ctx.drawImage(belleFrame, Math.round(belleX), Math.round(312 - belleJump), 32, 32);
+
+          // Cast showcase row (Pebble-Bot, Spark-Imp, Gloop-Bat)
+          const f = Math.floor(t * 5) % 2;
+          const castY = 206;
+          ctx.drawImage(SPRITES.pebble.normal[f].L, 122, castY, 24, 24);
+          drawPixelText("PEBBLE-BOT", 134, castY + 30, 1, "#a6b8ff", "center");
+
+          ctx.drawImage(SPRITES.spark.normal[f].L, 244, castY, 24, 24);
+          drawPixelText("SPARK-IMP", 256, castY + 30, 1, "#d18cff", "center");
+
+          ctx.drawImage(SPRITES.bat.normal[f].L, 366, castY, 24, 24);
+          drawPixelText("GLOOP-BAT", 378, castY + 30, 1, "#ff88f2", "center");
+
+          // Trapped critter showcase bubble on right platform
+          const demoBubY = 318 + Math.sin(t * 3) * 6;
+          ctx.drawImage(SPRITES.pebble.normal[f].L, 356, Math.round(demoBubY) - 8, 16, 16);
+          drawIridescentBubble(364, demoBubY, 15, t * 4, false);
+
+          // Blinking Start prompt
+          if (Math.floor(t * 2.4) % 2 === 0) {
+            drawPixelText("PRESS ENTER OR CLICK TO START", WIDTH / 2, 274, 2, "#ffe84d", "center", "#4a2400");
+          }
+
+          // Compact controls footer
+          drawPixelText("ARROWS/AD: MOVE   W/UP/Z: JUMP   SPACE/X: BUBBLE", WIDTH / 2, 396, 1, "#b8d4ff", "center");
+          drawPixelText("P: PAUSE   M: MUTE   TRAP CRITTERS & CHAIN POP!", WIDTH / 2, 412, 1, "#70f5c8", "center");
+        }
+
+        function renderGameplay() {
+          const pal = game.stageDef.palette;
+
+          // Cavern backdrop
+          ctx.fillStyle = pal.bg;
+          ctx.fillRect(0, HUD_HEIGHT, WIDTH, HEIGHT - HUD_HEIGHT);
+
+          // Subtle background cavern grid dots
+          ctx.fillStyle = "rgba(255,255,255,0.035)";
+          for (let r = 3; r < ROWS - 1; r += 2) {
+            for (let c = 2; c < COLS - 2; c += 2) {
+              ctx.fillRect(c * TILE + 7, r * TILE + 7, 2, 2);
+            }
+          }
+
+          // Draw stage tiles
+          for (let r = 2; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+              const t = game.grid[r][c];
+              if (t === 1) drawBrickTile(c * TILE, r * TILE, pal, false);
+              else if (t === 2) drawBrickTile(c * TILE, r * TILE, pal, true);
+            }
+          }
+
+          // Draw collectible fruits
+          for (let i = 0; i < game.fruits.length; i++) {
+            const f = game.fruits[i];
+            if (f.life < 2.0 && Math.floor(f.life * 12) % 2 === 0) continue;
+            const bobY = f.onGround ? Math.sin(f.bob) * 1.5 : 0;
+            ctx.drawImage(FRUIT_SPRITES[f.idx].sprite, Math.round(f.x), Math.round(f.y + bobY), 14, 14);
+          }
+
+          // Draw enemy sparks
+          for (let i = 0; i < game.sparks.length; i++) {
+            const s = game.sparks[i];
+            ctx.fillStyle = "#38f2ff";
+            ctx.fillRect(Math.round(s.x), Math.round(s.y), s.w, s.h);
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(Math.round(s.x + 2), Math.round(s.y + 2), 3, 3);
+          }
+
+          // Draw active enemies
+          for (let i = 0; i < game.enemies.length; i++) {
+            const en = game.enemies[i];
+            const set = SPRITES[en.type][en.angry ? "angry" : "normal"];
+            const frame = set[Math.floor(en.animTimer) % 2][en.dir >= 0 ? "R" : "L"];
+            ctx.drawImage(frame, Math.round(en.x - 1), Math.round(en.y));
+          }
+
+          // Draw bubbles (with trapped wiggling enemies inside)
+          for (let i = 0; i < game.bubbles.length; i++) {
+            const b = game.bubbles[i];
+            const cx = b.x + b.r;
+            const cy = b.y + b.r;
+            const dangerFlash = b.trapped !== null && b.life < 2.2 && Math.floor(b.life * 10) % 2 === 0;
+
+            if (b.trapped) {
+              const en = b.trapped;
+              const set = SPRITES[en.type].normal;
+              const frame = set[Math.floor(b.wobble * 1.5) % 2].R;
+              const wigX = Math.sin(b.wobble * 2.4) * 1.6;
+              ctx.drawImage(frame, Math.round(cx - 6 + wigX), Math.round(cy - 6), 12, 12);
+            }
+            drawIridescentBubble(cx, cy, b.r, b.wobble, dangerFlash);
+          }
+
+          // Draw Grim-Float (Hurry Up ghost)
+          if (game.grim) {
+            const g = game.grim;
+            const frame = SPRITES.grim[Math.floor(g.animTimer) % 2][g.dir >= 0 ? "R" : "L"];
+            ctx.save();
+            ctx.globalAlpha = 0.88;
+            ctx.drawImage(frame, Math.round(g.x - 1), Math.round(g.y - 1));
+            ctx.restore();
+          }
+
+          // Draw Borrel Belle
+          const p = game.player;
+          if (p.invulnTimer <= 0 || Math.floor(p.invulnTimer * 16) % 2 === 0) {
+            const facing = p.dir >= 0 ? "R" : "L";
+            let sprite;
+            if (p.blowTimer > 0) sprite = SPRITES.belle.blow[facing];
+            else if (!p.onGround) sprite = SPRITES.belle.jump[facing];
+            else if (Math.abs(p.vx) > 1) sprite = (Math.floor(p.animTimer) % 2 === 0 ? SPRITES.belle.walk1 : SPRITES.belle.walk2)[facing];
+            else sprite = SPRITES.belle.walk1[facing];
+            ctx.drawImage(sprite, Math.round(p.x - 1), Math.round(p.y));
+          }
+
+          // Particles
+          for (let i = 0; i < game.particles.length; i++) {
+            const pt = game.particles[i];
+            ctx.fillStyle = pt.color;
+            ctx.fillRect(Math.round(pt.x), Math.round(pt.y), pt.size, pt.size);
+          }
+
+          // Floating score popups
+          for (let i = 0; i < game.popups.length; i++) {
+            const pop = game.popups[i];
+            drawPixelText(pop.text, pop.x, pop.y, 1, pop.color, "center", "#000000");
+          }
+
+          // Stage intro banner
+          if (game.stageBannerTimer > 0) {
+            drawPixelText("STAGE " + game.stageNum, WIDTH / 2, 178, 3, "#ffe84d", "center", "#000000");
+            drawPixelText(game.stageDef.name, WIDTH / 2, 210, 1, "#ffffff", "center", "#000000");
+          }
+
+          // HURRY UP! flashing warning banner
+          if (game.hurryBannerTimer > 0 && Math.floor(game.hurryBannerTimer * 8) % 2 === 0) {
+            drawPixelText("HURRY UP!", WIDTH / 2, 152, 3, "#ff3b5c", "center", "#2a000a");
+          }
+
+          // Top HUD bar
+          drawHUD();
+
+          // Clean PAUSED overlay
+          if (game.paused) {
+            ctx.fillStyle = "rgba(4, 8, 22, 0.72)";
+            ctx.fillRect(0, HUD_HEIGHT, WIDTH, HEIGHT - HUD_HEIGHT);
+            drawPixelText("PAUSED", WIDTH / 2, 186, 4, "#38f2ff", "center", "#081c44");
+            drawPixelText("PRESS P OR CLICK TO RESUME", WIDTH / 2, 232, 1, "#ffffff", "center");
+          }
+
+          // GAME OVER overlay
+          if (game.mode === "GAMEOVER") {
+            ctx.fillStyle = "rgba(8, 4, 16, 0.78)";
+            ctx.fillRect(0, HUD_HEIGHT, WIDTH, HEIGHT - HUD_HEIGHT);
+            drawPixelText("GAME OVER", WIDTH / 2, 162, 4, "#ff4d79", "center", "#3a0414");
+            drawPixelText("FINAL SCORE  " + String(game.score).padStart(7, "0"), WIDTH / 2, 214, 2, "#ffe84d", "center", "#000000");
+            drawPixelText("HIGH SCORE   " + String(game.highScore).padStart(7, "0"), WIDTH / 2, 240, 1, "#38f2ff", "center");
+            drawPixelText("PRESS ENTER OR CLICK TO PLAY AGAIN", WIDTH / 2, 282, 1, "#ffffff", "center");
+          }
+        }
+
+        function render() {
+          if (game.mode === "TITLE") {
+            renderTitleScreen();
+          } else {
+            renderGameplay();
+          }
+        }
+
+        /* =====================================================================
+         * 10. FIXED-TIMESTEP MAIN LOOP (IDENTICAL SPEED ON 60/120/240 HZ)
+         * ===================================================================== */
+        let lastTime = performance.now();
+        let accumulator = 0;
+
+        function frame(now) {
+          const dt = Math.min((now - lastTime) / 1000, 0.05); // Clamped delta time
+          lastTime = now;
+          accumulator += dt;
+
+          while (accumulator >= FIXED_DT) {
+            if (game.mode === "TITLE") {
+              updateAttract(FIXED_DT);
+            } else if (game.mode === "PLAYING") {
+              updatePlaying(FIXED_DT);
+            } else if (game.mode === "GAMEOVER") {
+              updateEffects(FIXED_DT);
+            }
+            accumulator -= FIXED_DT;
+          }
+
+          render();
+          requestAnimationFrame(frame);
+        }
+
+        // Render initial animated attract frame immediately on load
+        render();
+        requestAnimationFrame(frame);
+      })();
+    </script>
+  </body>
+</html>
