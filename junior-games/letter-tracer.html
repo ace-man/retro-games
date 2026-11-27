@@ -1,0 +1,2047 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Letter Tracer</title>
+    <meta
+      name="description"
+      content="Toddler-friendly retro letter tracing game that builds hand-eye coordination and speaks each letter's phonics sound."
+    />
+    <meta name="game:genre" content="Puzzle" />
+    <meta name="game:tags" content="toddler, kids, letters, phonics, touch" />
+    <meta name="game:added" content="2026-11-27" />
+    <meta name="game:year" content="2026" />
+    <meta
+      name="game:controls"
+      content="Trace along the glowing dots with finger or mouse, tap finished letters to hear their phonics sound, Space or Enter to start or continue, Arrow keys to switch letters, P to pause, M to mute"
+    />
+    <meta name="game:author" content="Arcade Bot" />
+    <meta name="game:color" content="#ff9f43" />
+    <style>
+      :root {
+        --target-size: 38px;
+        --hud-bg: rgba(18, 11, 46, 0.78);
+        --hud-border: #ff9f43;
+        --hud-text: #ffffff;
+        --focus-ring: #ffe14d;
+      }
+
+      @media (pointer: coarse) {
+        :root {
+          --target-size: 46px;
+        }
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        font-family: "Courier New", Courier, monospace;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      main.stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        container: stage / inline-size;
+      }
+
+      #game {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+        cursor: pointer;
+      }
+
+      .hud-bar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding-top: max(10px, env(safe-area-inset-top, 0px));
+        padding-right: max(10px, env(safe-area-inset-right, 0px));
+        padding-left: max(10px, env(safe-area-inset-left, 0px));
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      .hud-btn {
+        pointer-events: auto;
+        min-inline-size: var(--target-size);
+        min-block-size: var(--target-size);
+        padding: 4px 10px;
+        border-radius: 12px;
+        border: 2.5px solid var(--hud-border);
+        background: var(--hud-bg);
+        color: var(--hud-text);
+        font: 900 18px/1 "Courier New", Courier, monospace;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+        transition: transform 120ms ease, border-color 120ms ease, color 120ms ease;
+      }
+
+      .hud-btn:hover {
+        transform: scale(1.06);
+      }
+
+      .hud-btn:active {
+        transform: scale(0.95);
+      }
+
+      .hud-btn:focus-visible {
+        outline: 3px solid var(--focus-ring);
+        outline-offset: 3px;
+      }
+
+      .hud-btn[aria-pressed="true"] {
+        border-color: #ff5ca8;
+        color: #ff5ca8;
+      }
+
+      .hud-btn--speak {
+        border-color: #38d9ff;
+        color: #38d9ff;
+      }
+
+      .hud-btn--next {
+        border-color: #66ff66;
+        color: #66ff66;
+      }
+
+      .hud-btn--pause {
+        border-color: #ffe14d;
+        color: #ffe14d;
+      }
+
+      .hud-btn[hidden] {
+        display: none;
+      }
+
+      /* Keep compact square gallery previews uncluttered */
+      @container stage (inline-size < 300px) {
+        .hud-bar {
+          display: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hud-btn {
+          transition: none;
+        }
+      }
+
+      .visually-hidden:where(:not(:focus-within, :active)) {
+        position: absolute !important;
+        clip-path: inset(50%) !important;
+        overflow: hidden !important;
+        width: 1px !important;
+        height: 1px !important;
+        margin: -1px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        white-space: nowrap !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="stage">
+      <h1 class="visually-hidden">Letter Tracer</h1>
+      <canvas id="game" aria-label="Letter Tracer toddler phonics arcade game"></canvas>
+
+      <div class="hud-bar" role="toolbar" aria-label="Game controls">
+        <button
+          id="btn-speak"
+          class="hud-btn hud-btn--speak"
+          type="button"
+          aria-label="Hear phonics sound"
+          hidden
+        >
+          <span aria-hidden="true">🔊</span>
+        </button>
+        <button
+          id="btn-skip"
+          class="hud-btn hud-btn--next"
+          type="button"
+          aria-label="Next letter"
+          hidden
+        >
+          <span aria-hidden="true">⏭</span>
+        </button>
+        <button
+          id="btn-pause"
+          class="hud-btn hud-btn--pause"
+          type="button"
+          aria-label="Pause game"
+          aria-pressed="false"
+          hidden
+        >
+          <span aria-hidden="true">II</span>
+        </button>
+        <button
+          id="btn-mute"
+          class="hud-btn"
+          type="button"
+          aria-label="Mute sound"
+          aria-pressed="false"
+        >
+          <span aria-hidden="true">♪</span>
+        </button>
+      </div>
+
+      <div id="live-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+    </main>
+
+    <script>
+      (() => {
+        "use strict";
+
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
+        const btnSpeak = document.getElementById("btn-speak");
+        const btnSkip = document.getElementById("btn-skip");
+        const btnPause = document.getElementById("btn-pause");
+        const btnMute = document.getElementById("btn-mute");
+        const liveStatus = document.getElementById("live-status");
+
+        const STORAGE_KEY = "letter-tracer:completed";
+        const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+        let reducedMotion = reducedMotionQuery.matches;
+        if (typeof reducedMotionQuery.addEventListener === "function") {
+          reducedMotionQuery.addEventListener("change", (ev) => {
+            reducedMotion = ev.matches;
+          });
+        }
+
+        // Cheerful pentatonic chime notes (always warm & musical)
+        const NOTES = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99];
+
+        // Vibrant toddler-friendly retro neon palette cycled across A-Z
+        const PALETTE = [
+          { fill: "#ffe14d", glow: "#fff099", rim: "#fffbe0" },
+          { fill: "#38d9ff", glow: "#99eeff", rim: "#e0faff" },
+          { fill: "#66ff66", glow: "#b3ffb3", rim: "#e6ffe6" },
+          { fill: "#ff5ca8", glow: "#ff99cc", rim: "#ffd6ec" },
+          { fill: "#ff9f43", glow: "#ffd099", rim: "#fff2e0" },
+          { fill: "#b57bff", glow: "#d9bdff", rim: "#f3e8ff" },
+          { fill: "#2ef2c9", glow: "#9efae6", rim: "#e2fff8" },
+          { fill: "#ff6b6b", glow: "#ffb3b3", rim: "#ffe5e5" },
+        ];
+
+        // -------------------------------------------------------------------
+        // Stroke Geometry Builders (normalized roughly [-0.72..0.72] x [-0.88..0.88])
+        // -------------------------------------------------------------------
+        function resampleOpenPath(rawPts, stepLen = 0.088) {
+          if (rawPts.length < 2) return rawPts.slice();
+          const dists = [0];
+          let totalLen = 0;
+          for (let i = 1; i < rawPts.length; i++) {
+            totalLen += Math.hypot(rawPts[i].x - rawPts[i - 1].x, rawPts[i].y - rawPts[i - 1].y);
+            dists.push(totalLen);
+          }
+          const count = Math.max(8, Math.min(34, Math.round(totalLen / stepLen)));
+          const out = [];
+          let seg = 0;
+          for (let i = 0; i <= count; i++) {
+            const target = (i / count) * totalLen;
+            while (seg < dists.length - 2 && dists[seg + 1] < target) {
+              seg++;
+            }
+            const segLen = Math.max(1e-6, dists[seg + 1] - dists[seg]);
+            const localT = (target - dists[seg]) / segLen;
+            out.push({
+              x: rawPts[seg].x + (rawPts[seg + 1].x - rawPts[seg].x) * localT,
+              y: rawPts[seg].y + (rawPts[seg + 1].y - rawPts[seg].y) * localT,
+            });
+          }
+          return out;
+        }
+
+        function lineStroke(x1, y1, x2, y2) {
+          return resampleOpenPath([
+            { x: x1, y: y1 },
+            { x: x2, y: y2 },
+          ]);
+        }
+
+        function polyStroke(verts) {
+          return resampleOpenPath(verts.map(([x, y]) => ({ x, y })));
+        }
+
+        function arcPts(cx, cy, rx, ry, startAng, endAng, samples = 36) {
+          const pts = [];
+          for (let i = 0; i <= samples; i++) {
+            const a = startAng + (i / samples) * (endAng - startAng);
+            pts.push({ x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry });
+          }
+          return pts;
+        }
+
+        function bezierPts(p0, p1, p2, p3, samples = 24) {
+          const pts = [];
+          for (let i = 0; i <= samples; i++) {
+            const t = i / samples;
+            const mt = 1 - t;
+            pts.push({
+              x: mt * mt * mt * p0[0] + 3 * mt * mt * t * p1[0] + 3 * mt * t * t * p2[0] + t * t * t * p3[0],
+              y: mt * mt * mt * p0[1] + 3 * mt * mt * t * p1[1] + 3 * mt * t * t * p2[1] + t * t * t * p3[1],
+            });
+          }
+          return pts;
+        }
+
+        function bowlStroke(spineX, topY, botY, flatLen, rx) {
+          const midY = (topY + botY) / 2;
+          const ry = (botY - topY) / 2;
+          const cx = spineX + flatLen;
+          const raw = [
+            { x: spineX, y: topY },
+            ...arcPts(cx, midY, rx, ry, -Math.PI / 2, Math.PI / 2, 32),
+            { x: spineX, y: botY },
+          ];
+          return resampleOpenPath(raw);
+        }
+
+        function buildSStroke() {
+          const seg1 = bezierPts([0.48, -0.58], [0.38, -0.96], [-0.54, -0.96], [-0.52, -0.44], 20);
+          const seg2 = bezierPts([-0.52, -0.44], [-0.5, -0.02], [0.54, -0.04], [0.54, 0.42], 22);
+          const seg3 = bezierPts([0.54, 0.42], [0.54, 0.96], [-0.38, 0.98], [-0.52, 0.56], 20);
+          return resampleOpenPath([...seg1, ...seg2.slice(1), ...seg3.slice(1)]);
+        }
+
+        // -------------------------------------------------------------------
+        // A-Z Phonics Letter Catalog
+        // Each letter uses TTS-safe phonetic syllables so Web Speech pronounces
+        // true phonics sounds (never alphabet letter names like "ay" or "bee").
+        // -------------------------------------------------------------------
+        const RAW_LETTERS = [
+          {
+            char: "A",
+            phonicsLabel: "ah",
+            phoneme: "/a/",
+            spokenPhoneme: "ahh",
+            word: "APPLE",
+            spokenWord: "apple",
+            strokes: [
+              lineStroke(0, -0.88, -0.62, 0.88),
+              lineStroke(0, -0.88, 0.62, 0.88),
+              lineStroke(-0.36, 0.24, 0.36, 0.24),
+            ],
+          },
+          {
+            char: "B",
+            phonicsLabel: "buh",
+            phoneme: "/b/",
+            spokenPhoneme: "buh",
+            word: "BALL",
+            spokenWord: "ball",
+            strokes: [
+              lineStroke(-0.5, -0.88, -0.5, 0.88),
+              bowlStroke(-0.5, -0.88, -0.02, 0.54, 0.44),
+              bowlStroke(-0.5, -0.02, 0.88, 0.58, 0.48),
+            ],
+          },
+          {
+            char: "C",
+            phonicsLabel: "kuh",
+            phoneme: "/k/",
+            spokenPhoneme: "kuh",
+            word: "CAT",
+            spokenWord: "cat",
+            strokes: [resampleOpenPath(arcPts(0.06, 0, 0.62, 0.88, -0.24 * Math.PI, -1.76 * Math.PI, 44))],
+          },
+          {
+            char: "D",
+            phonicsLabel: "duh",
+            phoneme: "/d/",
+            spokenPhoneme: "duh",
+            word: "DOG",
+            spokenWord: "dog",
+            strokes: [
+              lineStroke(-0.5, -0.88, -0.5, 0.88),
+              bowlStroke(-0.5, -0.88, 0.88, 0.42, 0.66),
+            ],
+          },
+          {
+            char: "E",
+            phonicsLabel: "eh",
+            phoneme: "/e/",
+            spokenPhoneme: "ehh",
+            word: "EGG",
+            spokenWord: "egg",
+            strokes: [
+              lineStroke(-0.5, -0.88, -0.5, 0.88),
+              lineStroke(-0.5, -0.88, 0.52, -0.88),
+              lineStroke(-0.5, 0, 0.38, 0),
+              lineStroke(-0.5, 0.88, 0.54, 0.88),
+            ],
+          },
+          {
+            char: "F",
+            phonicsLabel: "fuh",
+            phoneme: "/f/",
+            spokenPhoneme: "fuh",
+            word: "FISH",
+            spokenWord: "fish",
+            strokes: [
+              lineStroke(-0.48, -0.88, -0.48, 0.88),
+              lineStroke(-0.48, -0.88, 0.54, -0.88),
+              lineStroke(-0.48, -0.02, 0.38, -0.02),
+            ],
+          },
+          {
+            char: "G",
+            phonicsLabel: "guh",
+            phoneme: "/g/",
+            spokenPhoneme: "guh",
+            word: "GOAT",
+            spokenWord: "goat",
+            strokes: [
+              resampleOpenPath(arcPts(0.04, 0, 0.62, 0.88, -0.24 * Math.PI, -1.94 * Math.PI, 48)),
+              lineStroke(0.08, 0.12, 0.64, 0.12),
+            ],
+          },
+          {
+            char: "H",
+            phonicsLabel: "huh",
+            phoneme: "/h/",
+            spokenPhoneme: "huh",
+            word: "HAT",
+            spokenWord: "hat",
+            strokes: [
+              lineStroke(-0.54, -0.88, -0.54, 0.88),
+              lineStroke(0.54, -0.88, 0.54, 0.88),
+              lineStroke(-0.54, 0, 0.54, 0),
+            ],
+          },
+          {
+            char: "I",
+            phonicsLabel: "ih",
+            phoneme: "/i/",
+            spokenPhoneme: "ihh",
+            word: "IGLOO",
+            spokenWord: "igloo",
+            strokes: [
+              lineStroke(0, -0.88, 0, 0.88),
+              lineStroke(-0.44, -0.88, 0.44, -0.88),
+              lineStroke(-0.44, 0.88, 0.44, 0.88),
+            ],
+          },
+          {
+            char: "J",
+            phonicsLabel: "juh",
+            phoneme: "/j/",
+            spokenPhoneme: "juh",
+            word: "JAM",
+            spokenWord: "jam",
+            strokes: [
+              resampleOpenPath([
+                { x: 0.24, y: -0.88 },
+                { x: 0.24, y: 0.36 },
+                ...arcPts(-0.14, 0.36, 0.38, 0.52, 0, 0.92 * Math.PI, 28),
+              ]),
+              lineStroke(-0.22, -0.88, 0.56, -0.88),
+            ],
+          },
+          {
+            char: "K",
+            phonicsLabel: "kuh",
+            phoneme: "/k/",
+            spokenPhoneme: "kuh",
+            word: "KITE",
+            spokenWord: "kite",
+            strokes: [
+              lineStroke(-0.5, -0.88, -0.5, 0.88),
+              lineStroke(0.52, -0.88, -0.48, 0.04),
+              lineStroke(-0.48, 0.04, 0.54, 0.88),
+            ],
+          },
+          {
+            char: "L",
+            phonicsLabel: "luh",
+            phoneme: "/l/",
+            spokenPhoneme: "luh",
+            word: "LION",
+            spokenWord: "lion",
+            strokes: [
+              polyStroke([
+                [-0.48, -0.88],
+                [-0.48, 0.88],
+                [0.52, 0.88],
+              ]),
+            ],
+          },
+          {
+            char: "M",
+            phonicsLabel: "muh",
+            phoneme: "/m/",
+            spokenPhoneme: "muh",
+            word: "MOON",
+            spokenWord: "moon",
+            strokes: [
+              lineStroke(-0.64, -0.88, -0.64, 0.88),
+              polyStroke([
+                [-0.64, -0.88],
+                [0, 0.2],
+                [0.64, -0.88],
+                [0.64, 0.88],
+              ]),
+            ],
+          },
+          {
+            char: "N",
+            phonicsLabel: "nuh",
+            phoneme: "/n/",
+            spokenPhoneme: "nuh",
+            word: "NEST",
+            spokenWord: "nest",
+            strokes: [
+              lineStroke(-0.54, -0.88, -0.54, 0.88),
+              lineStroke(-0.54, -0.88, 0.54, 0.88),
+              lineStroke(0.54, -0.88, 0.54, 0.88),
+            ],
+          },
+          {
+            char: "O",
+            phonicsLabel: "aw",
+            phoneme: "/o/",
+            spokenPhoneme: "aww",
+            word: "OCTOPUS",
+            spokenWord: "octopus",
+            strokes: [resampleOpenPath(arcPts(0, 0, 0.64, 0.88, -Math.PI / 2, -2.5 * Math.PI, 48))],
+          },
+          {
+            char: "P",
+            phonicsLabel: "puh",
+            phoneme: "/p/",
+            spokenPhoneme: "puh",
+            word: "PIG",
+            spokenWord: "pig",
+            strokes: [
+              lineStroke(-0.48, -0.88, -0.48, 0.88),
+              bowlStroke(-0.48, -0.88, 0.08, 0.54, 0.48),
+            ],
+          },
+          {
+            char: "Q",
+            phonicsLabel: "kwuh",
+            phoneme: "/kw/",
+            spokenPhoneme: "kwuh",
+            word: "QUEEN",
+            spokenWord: "queen",
+            strokes: [
+              resampleOpenPath(arcPts(0, -0.04, 0.62, 0.84, -Math.PI / 2, -2.5 * Math.PI, 48)),
+              lineStroke(0.16, 0.38, 0.66, 0.9),
+            ],
+          },
+          {
+            char: "R",
+            phonicsLabel: "ruh",
+            phoneme: "/r/",
+            spokenPhoneme: "ruh",
+            word: "ROBOT",
+            spokenWord: "robot",
+            strokes: [
+              lineStroke(-0.48, -0.88, -0.48, 0.88),
+              bowlStroke(-0.48, -0.88, 0.04, 0.54, 0.46),
+              lineStroke(0.02, 0.04, 0.56, 0.88),
+            ],
+          },
+          {
+            char: "S",
+            phonicsLabel: "suh",
+            phoneme: "/s/",
+            spokenPhoneme: "suh",
+            word: "SUN",
+            spokenWord: "sun",
+            strokes: [buildSStroke()],
+          },
+          {
+            char: "T",
+            phonicsLabel: "tuh",
+            phoneme: "/t/",
+            spokenPhoneme: "tuh",
+            word: "TIGER",
+            spokenWord: "tiger",
+            strokes: [
+              lineStroke(0, -0.88, 0, 0.88),
+              lineStroke(-0.62, -0.88, 0.62, -0.88),
+            ],
+          },
+          {
+            char: "U",
+            phonicsLabel: "uh",
+            phoneme: "/u/",
+            spokenPhoneme: "uhh",
+            word: "UMBRELLA",
+            spokenWord: "umbrella",
+            strokes: [
+              resampleOpenPath([
+                { x: -0.54, y: -0.88 },
+                { x: -0.54, y: 0.32 },
+                ...arcPts(0, 0.32, 0.54, 0.56, Math.PI, 0, 28),
+                { x: 0.54, y: -0.88 },
+              ]),
+            ],
+          },
+          {
+            char: "V",
+            phonicsLabel: "vuh",
+            phoneme: "/v/",
+            spokenPhoneme: "vuh",
+            word: "VAN",
+            spokenWord: "van",
+            strokes: [
+              polyStroke([
+                [-0.6, -0.88],
+                [0, 0.88],
+                [0.6, -0.88],
+              ]),
+            ],
+          },
+          {
+            char: "W",
+            phonicsLabel: "wuh",
+            phoneme: "/w/",
+            spokenPhoneme: "wuh",
+            word: "WEB",
+            spokenWord: "web",
+            strokes: [
+              polyStroke([
+                [-0.7, -0.88],
+                [-0.35, 0.88],
+                [0, -0.22],
+                [0.35, 0.88],
+                [0.7, -0.88],
+              ]),
+            ],
+          },
+          {
+            char: "X",
+            phonicsLabel: "ks",
+            phoneme: "/ks/",
+            spokenPhoneme: "ksuh",
+            word: "FOX",
+            spokenWord: "fox",
+            strokes: [
+              lineStroke(-0.56, -0.88, 0.56, 0.88),
+              lineStroke(0.56, -0.88, -0.56, 0.88),
+            ],
+          },
+          {
+            char: "Y",
+            phonicsLabel: "yuh",
+            phoneme: "/y/",
+            spokenPhoneme: "yuh",
+            word: "YO-YO",
+            spokenWord: "yo-yo",
+            strokes: [
+              lineStroke(-0.58, -0.88, 0, 0.02),
+              polyStroke([
+                [0.58, -0.88],
+                [0, 0.02],
+                [0, 0.88],
+              ]),
+            ],
+          },
+          {
+            char: "Z",
+            phonicsLabel: "zuh",
+            phoneme: "/z/",
+            spokenPhoneme: "zuh",
+            word: "ZEBRA",
+            spokenWord: "zebra",
+            strokes: [
+              polyStroke([
+                [-0.56, -0.88],
+                [0.56, -0.88],
+                [-0.56, 0.88],
+                [0.56, 0.88],
+              ]),
+            ],
+          },
+        ];
+
+        const LETTERS = RAW_LETTERS.map((item, idx) => {
+          const colors = PALETTE[idx % PALETTE.length];
+          const totalWaypoints = item.strokes.reduce((sum, s) => sum + (s.length - 1), 0);
+          return {
+            ...item,
+            lower: item.char.toLowerCase(),
+            fill: colors.fill,
+            glow: colors.glow,
+            rim: colors.rim,
+            totalWaypoints,
+          };
+        });
+
+        // -------------------------------------------------------------------
+        // Game State
+        // -------------------------------------------------------------------
+        let W = 320;
+        let H = 320;
+        let dpr = 1;
+
+        // "title" | "tracing" | "celebrate" | "paused"
+        let state = "title";
+        let stateBeforePause = "tracing";
+        let elapsed = 0;
+        let muted = false;
+        let hasUserGesture = false;
+
+        let letterIndex = 0;
+        let strokeIndex = 0; // Active stroke index (0 .. letter.strokes.length - 1)
+        let progressIndex = 0; // Active waypoint index within current stroke
+        let sessionCount = 0;
+        let totalCompleted = loadCompleted();
+
+        let idleTime = 0;
+        let strokeCooldown = 0;
+        let celebrateTime = 0;
+        let celebrateBounce = 0;
+        let nextBtnRect = { x: 0, y: 0, w: 0, h: 0 };
+        let bannerRect = { x: 0, y: 0, w: 0, h: 0 };
+        let titlePlayRect = { x: 0, y: 0, w: 0, h: 0 };
+
+        // Attract-mode demo tracer on title screen
+        let demoLetterIdx = 0;
+        let demoProgress = 0;
+
+        // Pointer tracking (supports multi-touch / stylus / mouse)
+        const activePointers = new Map();
+        let lastChimeTime = 0;
+        let chimeNoteIdx = 0;
+
+        // Visual FX entities
+        let stars = [];
+        let particles = [];
+        let rings = [];
+
+        // Web Audio API (initialized lazily on first user gesture)
+        let audioCtx = null;
+
+        function loadCompleted() {
+          try {
+            const val = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+            return Number.isFinite(val) && val > 0 ? val : 0;
+          } catch (_) {
+            return 0;
+          }
+        }
+
+        function saveCompleted(val) {
+          try {
+            localStorage.setItem(STORAGE_KEY, String(val));
+          } catch (_) {
+            // Ignore storage errors in sandboxed iframes
+          }
+        }
+
+        function announce(text) {
+          if (!liveStatus) return;
+          liveStatus.textContent = "";
+          requestAnimationFrame(() => {
+            liveStatus.textContent = text;
+          });
+        }
+
+        // -------------------------------------------------------------------
+        // Audio & Phonics Speech (never triggered before a user gesture)
+        // -------------------------------------------------------------------
+        function ensureAudio() {
+          hasUserGesture = true;
+          if (!audioCtx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {
+              audioCtx = new AudioCtx();
+            }
+          }
+          if (audioCtx && audioCtx.state === "suspended") {
+            audioCtx.resume().catch(() => {});
+          }
+        }
+
+        function playTraceChime(progressFrac) {
+          if (muted || !audioCtx || !hasUserGesture) return;
+          const nowMs = performance.now();
+          if (nowMs - lastChimeTime < 75) return;
+          lastChimeTime = nowMs;
+
+          const now = audioCtx.currentTime;
+          const notePos = Math.min(NOTES.length - 1, Math.floor(progressFrac * NOTES.length));
+          const freq = NOTES[(notePos + (chimeNoteIdx++ % 2)) % NOTES.length];
+
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, now);
+          osc.frequency.exponentialRampToValueAtTime(freq * 1.18, now + 0.08);
+
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.linearRampToValueAtTime(0.18, now + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.15);
+        }
+
+        function playStrokeCompleteSound() {
+          if (muted || !audioCtx || !hasUserGesture) return;
+          const now = audioCtx.currentTime;
+          const notes = [440.0, 587.33];
+          notes.forEach((f, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "triangle";
+            const t = now + i * 0.06;
+            osc.frequency.setValueAtTime(f, t);
+            gain.gain.setValueAtTime(0.001, t);
+            gain.gain.linearRampToValueAtTime(0.16, t + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(t);
+            osc.stop(t + 0.16);
+          });
+        }
+
+        function playStartSound() {
+          if (muted || !audioCtx || !hasUserGesture) return;
+          const now = audioCtx.currentTime;
+          const arp = [261.63, 329.63, 392.0, 523.25];
+          arp.forEach((f, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "triangle";
+            const t = now + i * 0.06;
+            osc.frequency.setValueAtTime(f, t);
+            gain.gain.setValueAtTime(0.001, t);
+            gain.gain.linearRampToValueAtTime(0.14, t + 0.012);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(t);
+            osc.stop(t + 0.15);
+          });
+        }
+
+        function playFanfare() {
+          if (muted || !audioCtx || !hasUserGesture) return;
+          const now = audioCtx.currentTime;
+          const melody = [
+            { f: 392.0, d: 0.0, len: 0.14 },
+            { f: 523.25, d: 0.1, len: 0.14 },
+            { f: 659.25, d: 0.2, len: 0.16 },
+            { f: 783.99, d: 0.32, len: 0.34 },
+          ];
+          melody.forEach((n) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "triangle";
+            const t = now + n.d;
+            osc.frequency.setValueAtTime(n.f, t);
+            gain.gain.setValueAtTime(0.001, t);
+            gain.gain.linearRampToValueAtTime(0.18, t + 0.015);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + n.len);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(t);
+            osc.stop(t + n.len + 0.02);
+          });
+        }
+
+        function playBoingSound() {
+          if (muted || !audioCtx || !hasUserGesture) return;
+          const now = audioCtx.currentTime;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(320, now);
+          osc.frequency.exponentialRampToValueAtTime(640, now + 0.12);
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.linearRampToValueAtTime(0.18, now + 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.19);
+        }
+
+        function buildPhonicsPhrase(letter) {
+          // Speaks the phonics sound twice followed by a clear example word
+          // (e.g., "buh, buh, ball!"), never saying the alphabet letter name.
+          return `${letter.spokenPhoneme}, ${letter.spokenPhoneme}, ${letter.spokenWord}!`;
+        }
+
+        function speakPhonics(letter) {
+          if (muted || !hasUserGesture) return;
+          if (!("speechSynthesis" in window) || typeof window.SpeechSynthesisUtterance !== "function") {
+            return;
+          }
+          try {
+            window.speechSynthesis.cancel();
+            const utter = new SpeechSynthesisUtterance(buildPhonicsPhrase(letter));
+            utter.lang = "en-US";
+            utter.rate = 0.82;
+            utter.pitch = 1.12;
+            utter.volume = 1.0;
+            const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+            const friendlyVoice =
+              voices.find((v) => /^en/i.test(v.lang) && /samantha|google us english|aria|jenny|karen|zira/i.test(v.name)) ||
+              voices.find((v) => /^en/i.test(v.lang));
+            if (friendlyVoice) {
+              utter.voice = friendlyVoice;
+            }
+            window.speechSynthesis.speak(utter);
+          } catch (_) {
+            // Gracefully ignore speech synthesis errors in restricted contexts
+          }
+        }
+
+        function cancelSpeech() {
+          try {
+            if ("speechSynthesis" in window) {
+              window.speechSynthesis.cancel();
+            }
+          } catch (_) {}
+        }
+
+        // -------------------------------------------------------------------
+        // Layout & Coordinate Mapping
+        // -------------------------------------------------------------------
+        function initStars() {
+          stars = [];
+          for (let i = 0; i < 42; i++) {
+            stars.push({
+              x: Math.random(),
+              y: Math.random(),
+              r: 1 + Math.random() * 2.2,
+              phase: Math.random() * Math.PI * 2,
+              speed: 1.1 + Math.random() * 2.0,
+            });
+          }
+        }
+
+        function resize() {
+          const rect = canvas.getBoundingClientRect();
+          W = Math.max(1, rect.width);
+          H = Math.max(1, rect.height);
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.width = Math.floor(W * dpr);
+          canvas.height = Math.floor(H * dpr);
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+
+        function getLetterMetrics(mode = state) {
+          const minDim = Math.min(W, H);
+          const hudTop = Math.max(46, minDim * 0.11);
+          const bottomPad = mode === "celebrate" ? Math.max(134, H * 0.34) : Math.max(42, H * 0.1);
+          const availH = Math.max(80, H - hudTop - bottomPad);
+          const availW = Math.max(80, W - Math.max(44, W * 0.14));
+          const maxScale = Math.min(availW * 0.46, availH * 0.46);
+          const scale = Math.max(38, Math.min(210, maxScale));
+          const cx = W / 2;
+          const cy = mode === "celebrate" ? hudTop + availH * 0.48 : hudTop + availH * 0.5;
+          return { cx, cy, scale };
+        }
+
+        function toScreen(pt, metrics) {
+          return {
+            x: metrics.cx + pt.x * metrics.scale,
+            y: metrics.cy + pt.y * metrics.scale,
+          };
+        }
+
+        function getOverallProgressFraction(letter) {
+          let done = progressIndex;
+          for (let s = 0; s < strokeIndex; s++) {
+            done += letter.strokes[s].length - 1;
+          }
+          return Math.min(1, done / Math.max(1, letter.totalWaypoints));
+        }
+
+        // -------------------------------------------------------------------
+        // HUD Synchronization
+        // -------------------------------------------------------------------
+        function syncHudButtons() {
+          const inGame = state === "tracing" || state === "celebrate" || state === "paused";
+          const activePlay = state === "tracing" || state === "celebrate";
+          btnSpeak.hidden = !activePlay;
+          btnSkip.hidden = !activePlay;
+          btnPause.hidden = !inGame;
+
+          btnPause.setAttribute("aria-pressed", String(state === "paused"));
+          btnPause.setAttribute("aria-label", state === "paused" ? "Resume game" : "Pause game");
+          btnPause.firstElementChild.textContent = state === "paused" ? "▶" : "II";
+
+          btnMute.setAttribute("aria-pressed", String(muted));
+          btnMute.setAttribute("aria-label", muted ? "Unmute sound" : "Mute sound");
+          btnMute.firstElementChild.textContent = muted ? "✕" : "♪";
+        }
+
+        // -------------------------------------------------------------------
+        // Game Transitions
+        // -------------------------------------------------------------------
+        function startGame() {
+          ensureAudio();
+          state = "tracing";
+          letterIndex = 0;
+          sessionCount = 0;
+          loadLetter(letterIndex);
+          playStartSound();
+          syncHudButtons();
+        }
+
+        function loadLetter(idx) {
+          cancelSpeech();
+          letterIndex = ((idx % LETTERS.length) + LETTERS.length) % LETTERS.length;
+          strokeIndex = 0;
+          progressIndex = 0;
+          idleTime = 0;
+          strokeCooldown = 0;
+          celebrateTime = 0;
+          celebrateBounce = 0;
+          state = "tracing";
+          activePointers.clear();
+          const letter = LETTERS[letterIndex];
+          announce(`Trace letter ${letter.char}, phonics sound ${letter.phonicsLabel}.`);
+          syncHudButtons();
+        }
+
+        function completeLetter() {
+          const letter = LETTERS[letterIndex];
+          state = "celebrate";
+          celebrateTime = 0;
+          celebrateBounce = 1;
+          sessionCount += 1;
+          totalCompleted += 1;
+          saveCompleted(totalCompleted);
+          activePointers.clear();
+
+          const metrics = getLetterMetrics("celebrate");
+          rings.push({
+            x: metrics.cx,
+            y: metrics.cy,
+            r: metrics.scale * 0.55,
+            maxR: metrics.scale * 1.9,
+            alpha: 1,
+            color: letter.rim,
+          });
+
+          const burstCount = reducedMotion ? 12 : 34;
+          const confettiColors = ["#ffe14d", "#ff5ca8", "#38d9ff", "#66ff66", "#b57bff", "#ffffff", letter.fill];
+          for (let i = 0; i < burstCount; i++) {
+            const angle = (Math.PI * 2 * i) / burstCount + (Math.random() - 0.5) * 0.25;
+            const speed = (reducedMotion ? 55 : 110) + Math.random() * (reducedMotion ? 80 : 210);
+            particles.push({
+              x: metrics.cx + (Math.random() - 0.5) * metrics.scale * 0.45,
+              y: metrics.cy + (Math.random() - 0.5) * metrics.scale * 0.45,
+              vx: Math.cos(angle) * speed,
+              vy: Math.sin(angle) * speed - 40,
+              size: 5 + Math.random() * 8,
+              color: confettiColors[i % confettiColors.length],
+              life: 0.9 + Math.random() * 0.7,
+              maxLife: 1.6,
+              star: i % 3 !== 0,
+            });
+          }
+
+          playFanfare();
+          setTimeout(() => {
+            if (state === "celebrate") {
+              speakPhonics(letter);
+            }
+          }, 280);
+
+          announce(`Hooray! ${letter.char} says ${letter.phonicsLabel}, like ${letter.spokenWord}!`);
+          syncHudButtons();
+        }
+
+        function spawnTraceSparkle(x, y, letter) {
+          const count = reducedMotion ? 2 : 5;
+          for (let i = 0; i < count; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const spd = 25 + Math.random() * 85;
+            particles.push({
+              x,
+              y,
+              vx: Math.cos(a) * spd,
+              vy: Math.sin(a) * spd,
+              size: 3.5 + Math.random() * 5,
+              color: i === 0 ? "#ffffff" : letter.fill,
+              life: 0.35 + Math.random() * 0.25,
+              maxLife: 0.6,
+              star: i % 2 === 0,
+            });
+          }
+        }
+
+        // -------------------------------------------------------------------
+        // Forgiving Multi-Stroke Toddler Tracing Logic
+        // -------------------------------------------------------------------
+        function advanceActiveStroke(letter, metrics) {
+          const activeStroke = letter.strokes[strokeIndex];
+          const lastIdx = activeStroke.length - 1;
+          if (progressIndex >= lastIdx) {
+            if (strokeIndex < letter.strokes.length - 1) {
+              const endPt = toScreen(activeStroke[lastIdx], metrics);
+              rings.push({
+                x: endPt.x,
+                y: endPt.y,
+                r: 12,
+                maxR: Math.max(46, metrics.scale * 0.42),
+                alpha: 0.9,
+                color: letter.rim,
+              });
+              strokeIndex += 1;
+              progressIndex = 0;
+              idleTime = 0;
+              strokeCooldown = 0.2;
+              playStrokeCompleteSound();
+            } else {
+              completeLetter();
+            }
+          }
+        }
+
+        function applyTraceSample(sx, sy, isInitialTap) {
+          if (state !== "tracing") return;
+          if (!isInitialTap && strokeCooldown > 0) return;
+          if (isInitialTap) strokeCooldown = 0;
+          const letter = LETTERS[letterIndex];
+          const pts = letter.strokes[strokeIndex];
+          const lastIdx = pts.length - 1;
+          const metrics = getLetterMetrics("tracing");
+
+          // Generous toddler touch corridor, with tighter start lookahead so short
+          // crossbars cannot be skipped from the tail end of a previous stroke.
+          const hitRadius = Math.max(44, Math.min(82, metrics.scale * 0.36));
+          const hitR2 = hitRadius * hitRadius;
+          const lookAhead =
+            progressIndex === 0 ? Math.min(2, lastIdx) : Math.min(4, Math.max(2, Math.floor(lastIdx * 0.35)));
+          const maxCandidate = Math.min(lastIdx, progressIndex + lookAhead);
+
+          let bestIdx = -1;
+          for (let i = progressIndex; i <= maxCandidate; i++) {
+            const p = toScreen(pts[i], metrics);
+            const dx = sx - p.x;
+            const dy = sy - p.y;
+            if (dx * dx + dy * dy <= hitR2) {
+              bestIdx = i;
+            }
+          }
+
+          // Snap cleanly at end of a stroke once mostly traced
+          if (bestIdx === -1 && progressIndex >= Math.max(2, lastIdx - 2)) {
+            const finishPt = toScreen(pts[lastIdx], metrics);
+            const dx = sx - finishPt.x;
+            const dy = sy - finishPt.y;
+            if (dx * dx + dy * dy <= hitR2 * 1.35) {
+              bestIdx = lastIdx;
+            }
+          }
+
+          if (bestIdx !== -1) {
+            const prevProgress = progressIndex;
+            const nextProgress = isInitialTap
+              ? Math.min(lastIdx, Math.max(progressIndex + 2, bestIdx + 1))
+              : Math.min(lastIdx, Math.max(progressIndex, bestIdx + 1));
+
+            if (nextProgress > prevProgress) {
+              progressIndex = nextProgress;
+              idleTime = 0;
+
+              const reachedPt = toScreen(pts[Math.min(lastIdx, progressIndex)], metrics);
+              spawnTraceSparkle(reachedPt.x, reachedPt.y, letter);
+              playTraceChime(getOverallProgressFraction(letter));
+
+              advanceActiveStroke(letter, metrics);
+            }
+          }
+        }
+
+        function traceSegment(x0, y0, x1, y1, isInitialTap) {
+          const dist = Math.hypot(x1 - x0, y1 - y0);
+          const step = 14;
+          const steps = Math.max(1, Math.ceil(dist / step));
+          for (let i = 1; i <= steps; i++) {
+            if (state !== "tracing") break;
+            const t = i / steps;
+            applyTraceSample(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, isInitialTap && i === 1);
+          }
+        }
+
+        function inRect(x, y, r) {
+          return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+        }
+
+        // -------------------------------------------------------------------
+        // Input Handlers
+        // -------------------------------------------------------------------
+        function handlePointerDown(e) {
+          e.preventDefault();
+          ensureAudio();
+
+          const rect = canvas.getBoundingClientRect();
+          const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
+
+          if (state === "title") {
+            startGame();
+            return;
+          }
+
+          if (state === "paused") {
+            state = stateBeforePause;
+            syncHudButtons();
+            return;
+          }
+
+          if (state === "celebrate") {
+            const letter = LETTERS[letterIndex];
+            const metrics = getLetterMetrics("celebrate");
+            const distToLetter = Math.hypot(px - metrics.cx, py - metrics.cy);
+
+            if (celebrateTime >= 0.95 && inRect(px, py, nextBtnRect)) {
+              loadLetter(letterIndex + 1);
+              playStartSound();
+              return;
+            }
+
+            // Tapping the celebrated letter or phonics banner repeats its phonics sound!
+            if (celebrateTime >= 0.35 && (distToLetter <= metrics.scale * 1.05 || inRect(px, py, bannerRect))) {
+              celebrateBounce = 1;
+              playBoingSound();
+              speakPhonics(letter);
+              spawnTraceSparkle(px, py, letter);
+              return;
+            }
+
+            if (celebrateTime >= 1.1) {
+              loadLetter(letterIndex + 1);
+              playStartSound();
+            }
+            return;
+          }
+
+          // Tracing mode
+          try {
+            canvas.setPointerCapture(e.pointerId);
+          } catch (_) {}
+          activePointers.set(e.pointerId, { x: px, y: py });
+          applyTraceSample(px, py, true);
+        }
+
+        function handlePointerMove(e) {
+          if (!activePointers.has(e.pointerId)) return;
+          if (state !== "tracing") return;
+          e.preventDefault();
+
+          const rect = canvas.getBoundingClientRect();
+          const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
+          const prev = activePointers.get(e.pointerId);
+          activePointers.set(e.pointerId, { x: px, y: py });
+
+          traceSegment(prev.x, prev.y, px, py, false);
+        }
+
+        function handlePointerUp(e) {
+          activePointers.delete(e.pointerId);
+        }
+
+        function togglePause() {
+          if (state === "tracing" || state === "celebrate") {
+            stateBeforePause = state;
+            state = "paused";
+            cancelSpeech();
+            syncHudButtons();
+          } else if (state === "paused") {
+            state = stateBeforePause;
+            syncHudButtons();
+          }
+        }
+
+        function toggleMute() {
+          muted = !muted;
+          if (muted) cancelSpeech();
+          syncHudButtons();
+        }
+
+        function handleKeyDown(e) {
+          const onNativeBtn = document.activeElement && document.activeElement.tagName === "BUTTON";
+
+          if (
+            ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) ||
+            (!onNativeBtn && (e.code === "Space" || e.key === " "))
+          ) {
+            e.preventDefault();
+          }
+
+          ensureAudio();
+
+          const key = e.key.toLowerCase();
+          if (key === "m") {
+            toggleMute();
+            return;
+          }
+
+          if (key === "p" || key === "escape") {
+            togglePause();
+            return;
+          }
+
+          if (onNativeBtn) return;
+
+          if (e.code === "Space" || e.key === "Enter") {
+            if (state === "title") {
+              startGame();
+            } else if (state === "paused") {
+              state = stateBeforePause;
+              syncHudButtons();
+            } else if (state === "celebrate" && celebrateTime >= 0.7) {
+              loadLetter(letterIndex + 1);
+              playStartSound();
+            } else if (state === "tracing") {
+              const letter = LETTERS[letterIndex];
+              const pts = letter.strokes[strokeIndex];
+              const lastIdx = pts.length - 1;
+              progressIndex = Math.min(lastIdx, progressIndex + 4);
+              idleTime = 0;
+              const metrics = getLetterMetrics("tracing");
+              const pt = toScreen(pts[progressIndex], metrics);
+              spawnTraceSparkle(pt.x, pt.y, letter);
+              playTraceChime(getOverallProgressFraction(letter));
+              advanceActiveStroke(letter, metrics);
+            }
+          } else if (e.key === "ArrowRight" && (state === "tracing" || state === "celebrate")) {
+            loadLetter(letterIndex + 1);
+            playStartSound();
+          } else if (e.key === "ArrowLeft" && (state === "tracing" || state === "celebrate")) {
+            loadLetter(letterIndex - 1);
+            playStartSound();
+          }
+        }
+
+        function pauseIfActive() {
+          if (state === "tracing" || state === "celebrate") {
+            stateBeforePause = state;
+            state = "paused";
+            cancelSpeech();
+            activePointers.clear();
+            syncHudButtons();
+          }
+        }
+
+        // Toolbar button listeners
+        btnSpeak.addEventListener("click", () => {
+          ensureAudio();
+          if (state === "tracing" || state === "celebrate") {
+            const letter = LETTERS[letterIndex];
+            if (state === "celebrate") celebrateBounce = 1;
+            speakPhonics(letter);
+          }
+        });
+
+        btnSkip.addEventListener("click", () => {
+          ensureAudio();
+          if (state === "tracing" || state === "celebrate") {
+            loadLetter(letterIndex + 1);
+            playStartSound();
+          }
+        });
+
+        btnPause.addEventListener("click", () => {
+          ensureAudio();
+          togglePause();
+        });
+
+        btnMute.addEventListener("click", () => {
+          ensureAudio();
+          toggleMute();
+        });
+
+        // -------------------------------------------------------------------
+        // Update Loop
+        // -------------------------------------------------------------------
+        function update(dt) {
+          elapsed += dt;
+
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vy += 170 * dt;
+            p.life -= dt;
+            if (p.life <= 0) particles.splice(i, 1);
+          }
+
+          for (let i = rings.length - 1; i >= 0; i--) {
+            const rg = rings[i];
+            rg.r += (rg.maxR - rg.r) * Math.min(1, dt * 7);
+            rg.alpha -= dt * 1.6;
+            if (rg.alpha <= 0) rings.splice(i, 1);
+          }
+
+          if (state === "title") {
+            const speed = reducedMotion ? 0.14 : 0.36;
+            demoProgress += dt * speed;
+            if (demoProgress >= 1.25) {
+              demoProgress = 0;
+              demoLetterIdx = (demoLetterIdx + 1) % LETTERS.length;
+            }
+            return;
+          }
+
+          if (state === "tracing") {
+            idleTime += dt;
+            if (strokeCooldown > 0) strokeCooldown = Math.max(0, strokeCooldown - dt);
+            return;
+          }
+
+          if (state === "celebrate") {
+            celebrateTime += dt;
+            if (celebrateBounce > 0) {
+              celebrateBounce = Math.max(0, celebrateBounce - dt * 2.6);
+            }
+          }
+        }
+
+        // -------------------------------------------------------------------
+        // Drawing Helpers
+        // -------------------------------------------------------------------
+        function drawBackground() {
+          const grad = ctx.createLinearGradient(0, 0, 0, H);
+          grad.addColorStop(0, "#120b2e");
+          grad.addColorStop(0.55, "#1d1b52");
+          grad.addColorStop(1, "#123466");
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, W, H);
+
+          // Twinkling retro arcade stars
+          for (const s of stars) {
+            const twinkle = reducedMotion ? 0.55 : 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(elapsed * s.speed + s.phase));
+            ctx.fillStyle = `rgba(255, 255, 255, ${twinkle.toFixed(2)})`;
+            ctx.fillRect(Math.floor(s.x * W), Math.floor(s.y * H), Math.ceil(s.r), Math.ceil(s.r));
+          }
+
+          // Subtle CRT scanlines
+          ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
+          for (let y = 0; y < H; y += 4) {
+            ctx.fillRect(0, y, W, 1);
+          }
+        }
+
+        function drawStarIcon(x, y, size, color, strokeColor) {
+          ctx.save();
+          ctx.beginPath();
+          for (let i = 0; i < 5; i++) {
+            const a1 = (i * 2 * Math.PI) / 5 - Math.PI / 2;
+            const a2 = a1 + Math.PI / 5;
+            const rx = x + Math.cos(a1) * size;
+            const ry = y + Math.sin(a1) * size;
+            const ix = x + Math.cos(a2) * (size * 0.46);
+            const iy = y + Math.sin(a2) * (size * 0.46);
+            if (i === 0) ctx.moveTo(rx, ry);
+            else ctx.lineTo(rx, ry);
+            ctx.lineTo(ix, iy);
+          }
+          ctx.closePath();
+          ctx.fillStyle = color;
+          ctx.fill();
+          if (strokeColor) {
+            ctx.lineWidth = Math.max(1.5, size * 0.14);
+            ctx.strokeStyle = strokeColor;
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        function drawRoundedBox(x, y, w, h, r, fill, stroke, lineWidth = 3) {
+          const rad = Math.min(r, w / 2, h / 2);
+          ctx.beginPath();
+          ctx.moveTo(x + rad, y);
+          ctx.lineTo(x + w - rad, y);
+          ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+          ctx.lineTo(x + w, y + h - rad);
+          ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+          ctx.lineTo(x + rad, y + h);
+          ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
+          ctx.lineTo(x, y + rad);
+          ctx.quadraticCurveTo(x, y, x + rad, y);
+          ctx.closePath();
+          if (fill) {
+            ctx.fillStyle = fill;
+            ctx.fill();
+          }
+          if (stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = lineWidth;
+            ctx.stroke();
+          }
+        }
+
+        function traceStrokePath(pts, metrics, maxIdx = pts.length - 1) {
+          ctx.beginPath();
+          for (let i = 0; i <= maxIdx; i++) {
+            const p = toScreen(pts[i], metrics);
+            if (i === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+          }
+        }
+
+        function drawNeonStroke(pts, metrics, maxIdx, trackW, letter) {
+          if (maxIdx <= 0) return;
+
+          // Outer neon halo
+          traceStrokePath(pts, metrics, maxIdx);
+          ctx.strokeStyle = letter.fill + "55";
+          ctx.lineWidth = trackW * 1.48;
+          ctx.stroke();
+
+          // Rich colored beam
+          traceStrokePath(pts, metrics, maxIdx);
+          ctx.strokeStyle = letter.fill;
+          ctx.lineWidth = trackW * 0.88;
+          ctx.stroke();
+
+          // Bright inner core
+          traceStrokePath(pts, metrics, maxIdx);
+          ctx.strokeStyle = letter.rim;
+          ctx.lineWidth = Math.max(4, trackW * 0.3);
+          ctx.stroke();
+        }
+
+        function drawTracingStage() {
+          const letter = LETTERS[letterIndex];
+          const metrics = getLetterMetrics("tracing");
+          const trackW = Math.max(18, Math.min(38, metrics.scale * 0.22));
+
+          ctx.save();
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+
+          // 1. Recessed retro arcade groove tracks for ALL strokes so the full letter is clear
+          for (let s = 0; s < letter.strokes.length; s++) {
+            const pts = letter.strokes[s];
+            const isActive = s === strokeIndex;
+            const isUpcoming = s > strokeIndex;
+
+            traceStrokePath(pts, metrics);
+            ctx.strokeStyle = "rgba(8, 5, 24, 0.72)";
+            ctx.lineWidth = trackW + 10;
+            ctx.stroke();
+
+            traceStrokePath(pts, metrics);
+            ctx.strokeStyle = isUpcoming ? letter.fill + "26" : letter.fill + "48";
+            ctx.lineWidth = trackW;
+            ctx.stroke();
+
+            if (isActive) {
+              ctx.save();
+              ctx.setLineDash([Math.max(8, trackW * 0.45), Math.max(10, trackW * 0.55)]);
+              traceStrokePath(pts, metrics);
+              ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
+              ctx.lineWidth = Math.max(3, trackW * 0.14);
+              ctx.stroke();
+              ctx.restore();
+            }
+          }
+
+          // 2. Completed strokes glow permanently in neon
+          for (let s = 0; s < strokeIndex; s++) {
+            const pts = letter.strokes[s];
+            drawNeonStroke(pts, metrics, pts.length - 1, trackW, letter);
+          }
+
+          // 3. Glowing guide beads along remaining waypoints of the active stroke
+          const activePts = letter.strokes[strokeIndex];
+          const lastIdx = activePts.length - 1;
+          const beadR = Math.max(5.5, trackW * 0.28);
+          for (let i = progressIndex; i <= lastIdx; i += 3) {
+            const p = toScreen(activePts[i], metrics);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, beadR, 0, Math.PI * 2);
+            ctx.fillStyle = letter.glow + "cc";
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = "#ffffffaa";
+            ctx.stroke();
+          }
+
+          // Subtle stroke-number start dot for upcoming strokes (e.g. "2", "3")
+          for (let s = strokeIndex + 1; s < letter.strokes.length; s++) {
+            const startPt = toScreen(letter.strokes[s][0], metrics);
+            const badgeR = Math.max(9, trackW * 0.34);
+            ctx.beginPath();
+            ctx.arc(startPt.x, startPt.y, badgeR, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(18, 11, 46, 0.85)";
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = letter.fill + "aa";
+            ctx.stroke();
+
+            ctx.font = `900 ${Math.max(11, Math.floor(badgeR * 1.15))}px "Courier New", Courier, monospace`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillStyle = letter.rim;
+            ctx.fillText(String(s + 1), startPt.x, startPt.y + 0.5);
+          }
+
+          // 4. Traced neon portion of active stroke
+          if (progressIndex > 0) {
+            drawNeonStroke(activePts, metrics, Math.min(lastIdx, progressIndex), trackW, letter);
+          }
+
+          // 5. Gentle guiding comet ahead of current spot if toddler pauses > 1.8s
+          if (!reducedMotion && idleTime > 1.8 && progressIndex < lastIdx) {
+            const hintSpan = Math.min(8, lastIdx - progressIndex);
+            const hintPhase = (idleTime * 1.4) % 1;
+            const hintIdx = Math.min(lastIdx, Math.floor(progressIndex + hintPhase * hintSpan));
+            const hp = toScreen(activePts[hintIdx], metrics);
+            ctx.save();
+            ctx.globalAlpha = Math.sin(hintPhase * Math.PI) * 0.85;
+            ctx.beginPath();
+            ctx.arc(hp.x, hp.y, beadR * 1.45, 0, Math.PI * 2);
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+            ctx.restore();
+          }
+
+          // 6. Active glowing target buddy (where to place finger next!)
+          const curIdx = Math.min(lastIdx, progressIndex);
+          const curPt = toScreen(activePts[curIdx], metrics);
+          const pulse = reducedMotion ? 1 : 1 + 0.14 * Math.sin(elapsed * 6);
+          const beaconR = Math.max(16, trackW * 0.78);
+
+          const ringPulse = reducedMotion ? 0.45 : (elapsed * 1.3) % 1;
+          ctx.save();
+          ctx.globalAlpha = (1 - ringPulse) * 0.75;
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 3.5;
+          ctx.beginPath();
+          ctx.arc(curPt.x, curPt.y, beaconR * (1 + ringPulse * 0.9), 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+
+          const orbGrad = ctx.createRadialGradient(curPt.x, curPt.y, 2, curPt.x, curPt.y, beaconR * 1.35 * pulse);
+          orbGrad.addColorStop(0, "#ffffff");
+          orbGrad.addColorStop(0.55, letter.fill);
+          orbGrad.addColorStop(1, letter.fill + "00");
+          ctx.fillStyle = orbGrad;
+          ctx.beginPath();
+          ctx.arc(curPt.x, curPt.y, beaconR * 1.35 * pulse, 0, Math.PI * 2);
+          ctx.fill();
+
+          drawStarIcon(curPt.x, curPt.y, beaconR * 0.72 * pulse, "#ffe14d", "#120b2e");
+
+          // 7. Gentle bottom prompt (shows stroke cue for multi-stroke letters)
+          if (W >= 260 && H >= 260) {
+            const promptSize = Math.max(14, Math.min(24, Math.min(W, H) * 0.044));
+            ctx.font = `900 ${promptSize}px "Courier New", Courier, monospace`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            const msg =
+              progressIndex === 0 && strokeIndex === 0
+                ? "TRACE THE STAR!"
+                : letter.strokes.length > 1
+                  ? `LINE ${strokeIndex + 1} OF ${letter.strokes.length}`
+                  : "KEEP GOING!";
+            const py = H - Math.max(24, H * 0.055);
+            ctx.fillStyle = "#120b2e";
+            ctx.fillText(msg, W / 2 + 2, py + 2);
+            ctx.fillStyle = "#99eeff";
+            ctx.fillText(msg, W / 2, py);
+          }
+
+          ctx.restore();
+        }
+
+        function drawCelebrationStage() {
+          const letter = LETTERS[letterIndex];
+          const metrics = getLetterMetrics("celebrate");
+
+          const popT = Math.min(1, celebrateTime / 0.35);
+          const elastic = reducedMotion
+            ? 1
+            : 1 +
+              Math.sin(popT * Math.PI) * 0.14 +
+              Math.sin(celebrateBounce * Math.PI) * 0.16 +
+              Math.sin(elapsed * 3.4) * 0.03;
+
+          const drawMetrics = {
+            cx: metrics.cx,
+            cy: metrics.cy + (reducedMotion ? 0 : Math.sin(elapsed * 3.2) * 5),
+            scale: metrics.scale * elastic,
+          };
+          const strokeW = Math.max(22, Math.min(46, drawMetrics.scale * 0.28));
+
+          ctx.save();
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+
+          // Radiant halo behind presented letter
+          const halo = ctx.createRadialGradient(
+            drawMetrics.cx,
+            drawMetrics.cy,
+            drawMetrics.scale * 0.15,
+            drawMetrics.cx,
+            drawMetrics.cy,
+            drawMetrics.scale * 1.48
+          );
+          halo.addColorStop(0, letter.fill + "77");
+          halo.addColorStop(0.65, letter.fill + "26");
+          halo.addColorStop(1, letter.fill + "00");
+          ctx.fillStyle = halo;
+          ctx.beginPath();
+          ctx.arc(drawMetrics.cx, drawMetrics.cy, drawMetrics.scale * 1.48, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Bold 3D retro shadow + white neon outline + glossy letter strokes
+          const shadowMetrics = {
+            cx: drawMetrics.cx + Math.max(4, strokeW * 0.16),
+            cy: drawMetrics.cy + Math.max(5, strokeW * 0.2),
+            scale: drawMetrics.scale,
+          };
+          for (const pts of letter.strokes) {
+            traceStrokePath(pts, shadowMetrics);
+            ctx.strokeStyle = "rgba(10, 6, 30, 0.78)";
+            ctx.lineWidth = strokeW + 10;
+            ctx.stroke();
+          }
+
+          for (const pts of letter.strokes) {
+            traceStrokePath(pts, drawMetrics);
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = strokeW + 10;
+            ctx.stroke();
+          }
+
+          for (const pts of letter.strokes) {
+            traceStrokePath(pts, drawMetrics);
+            ctx.strokeStyle = letter.fill;
+            ctx.lineWidth = strokeW;
+            ctx.stroke();
+          }
+
+          for (const pts of letter.strokes) {
+            traceStrokePath(pts, drawMetrics);
+            ctx.strokeStyle = letter.rim;
+            ctx.lineWidth = Math.max(5, strokeW * 0.28);
+            ctx.stroke();
+          }
+
+          // Orbiting happy stars around the finished letter
+          const orbitStarCount = 4;
+          for (let i = 0; i < orbitStarCount; i++) {
+            const ang = (reducedMotion ? 0 : elapsed * 1.15) + (i * Math.PI * 2) / orbitStarCount;
+            const ox = drawMetrics.cx + Math.cos(ang) * drawMetrics.scale * 1.08;
+            const oy = drawMetrics.cy + Math.sin(ang) * drawMetrics.scale * 0.86;
+            drawStarIcon(ox, oy, Math.max(7, drawMetrics.scale * 0.085), "#ffe14d", "#120b2e");
+          }
+
+          // Big Phonics Presentation Banner ("ah!" • "A a  •  APPLE")
+          const minDim = Math.min(W, H);
+          const soundSize = Math.max(24, Math.min(54, Math.min(W * 0.11, minDim * 0.105)));
+          const wordSize = Math.max(14, Math.min(26, Math.floor(soundSize * 0.48)));
+          const pillH = soundSize * 1.15 + wordSize * 1.35 + 16;
+
+          const btnW = Math.max(185, Math.min(295, minDim * 0.58));
+          const btnH = Math.max(46, Math.min(62, minDim * 0.115));
+          const btnY = H - btnH / 2 - Math.max(14, H * 0.03);
+          const bannerY = Math.min(
+            btnY - btnH / 2 - pillH / 2 - 12,
+            metrics.cy + metrics.scale + pillH * 0.5 + 18
+          );
+
+          const soundText = `"${letter.phonicsLabel}!"`;
+          const subText = `${letter.char} ${letter.lower}  •  ${letter.word}`;
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${soundSize}px "Courier New", Courier, monospace`;
+          const soundW = ctx.measureText(soundText).width;
+          ctx.font = `700 ${wordSize}px "Courier New", Courier, monospace`;
+          const subW = ctx.measureText(subText).width;
+
+          const pillW = Math.min(W * 0.92, Math.max(soundW, subW) + Math.max(54, soundSize * 1.15));
+          bannerRect = { x: W / 2 - pillW / 2, y: bannerY - pillH / 2, w: pillW, h: pillH };
+
+          drawRoundedBox(
+            bannerRect.x,
+            bannerRect.y,
+            bannerRect.w,
+            bannerRect.h,
+            18,
+            "rgba(18, 11, 46, 0.9)",
+            letter.fill,
+            4
+          );
+
+          // Phonics sound headline
+          const soundY = bannerY - wordSize * 0.52;
+          ctx.font = `900 ${soundSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#0a061e";
+          ctx.fillText(soundText, W / 2 + 3, soundY + 3);
+          ctx.fillStyle = letter.rim;
+          ctx.fillText(soundText, W / 2, soundY);
+
+          // Uppercase + lowercase + example word caption
+          const subY = bannerY + soundSize * 0.56;
+          ctx.font = `700 ${wordSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = letter.glow;
+          ctx.fillText(subText, W / 2, subY);
+
+          // Big friendly NEXT LETTER button
+          const ready = celebrateTime >= 0.95;
+          const btnPulse = ready && !reducedMotion ? 1 + 0.04 * Math.sin(elapsed * 5.2) : 1;
+          const pw = btnW * btnPulse;
+          const ph = btnH * btnPulse;
+
+          nextBtnRect = { x: W / 2 - pw / 2, y: btnY - ph / 2, w: pw, h: ph };
+          drawRoundedBox(
+            nextBtnRect.x,
+            nextBtnRect.y,
+            nextBtnRect.w,
+            nextBtnRect.h,
+            16,
+            ready ? "#66ff66" : "rgba(102, 255, 102, 0.45)",
+            "#ffffff",
+            3
+          );
+
+          ctx.font = `900 ${Math.max(16, Math.floor(btnH * 0.42))}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("NEXT LETTER ▶", W / 2, btnY + 1);
+
+          ctx.restore();
+        }
+
+        function drawTitleScreen() {
+          // Animated attract-mode letter tracing cleanly in the background
+          const demoLetter = LETTERS[demoLetterIdx];
+          const metrics = getLetterMetrics("tracing");
+          const trackW = Math.max(10, Math.min(24, metrics.scale * 0.16));
+          const traceFrac = Math.min(1, demoProgress);
+
+          ctx.save();
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+
+          // Subtle background letter outline
+          for (const pts of demoLetter.strokes) {
+            traceStrokePath(pts, metrics);
+            ctx.strokeStyle = demoLetter.fill + "33";
+            ctx.lineWidth = trackW;
+            ctx.stroke();
+          }
+
+          // Auto-traced neon strokes across the demo letter's waypoints
+          let remaining = Math.floor(traceFrac * demoLetter.totalWaypoints);
+          let headPt = null;
+          for (const pts of demoLetter.strokes) {
+            if (remaining <= 0) break;
+            const segLast = pts.length - 1;
+            const drawn = Math.min(segLast, remaining);
+            if (drawn > 0) {
+              traceStrokePath(pts, metrics, drawn);
+              ctx.strokeStyle = demoLetter.fill + "cc";
+              ctx.lineWidth = trackW * 0.85;
+              ctx.stroke();
+              headPt = toScreen(pts[drawn], metrics);
+            }
+            remaining -= segLast;
+          }
+          if (headPt) {
+            drawStarIcon(headPt.x, headPt.y, Math.max(9, trackW * 0.75), "#ffe14d", "#120b2e");
+          }
+
+          const minDim = Math.min(W, H);
+          const cx = W / 2;
+          const cy = H / 2;
+          const bob = reducedMotion ? 0 : Math.sin(elapsed * 3.0) * 5;
+
+          const titleSize = Math.max(22, Math.min(64, Math.min(W * 0.115, minDim * 0.135)));
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${titleSize}px "Courier New", Courier, monospace`;
+
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("LETTER TRACER", cx + 4, cy - titleSize * 0.62 + bob + 4);
+          ctx.fillStyle = "#ff9f43";
+          ctx.fillText("LETTER TRACER", cx, cy - titleSize * 0.62 + bob);
+
+          const subSize = Math.max(11, Math.min(22, minDim * 0.044));
+          ctx.font = `700 ${subSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText("TRACE LETTERS & HEAR PHONICS!", cx, cy - titleSize * 0.02 + bob * 0.45);
+
+          // Big friendly pulsing PLAY button
+          const btnW = Math.max(136, Math.min(265, minDim * 0.56));
+          const btnH = Math.max(44, Math.min(72, minDim * 0.15));
+          const pulse = reducedMotion ? 1 : 1 + 0.045 * Math.sin(elapsed * 5);
+          const pw = btnW * pulse;
+          const ph = btnH * pulse;
+          const btnCy = cy + titleSize * 0.55;
+
+          titlePlayRect = { x: cx - pw / 2, y: btnCy - ph / 2, w: pw, h: ph };
+          drawRoundedBox(titlePlayRect.x, titlePlayRect.y, titlePlayRect.w, titlePlayRect.h, 16, "#66ff66", "#ffffff", 3);
+
+          ctx.font = `900 ${Math.max(18, Math.floor(btnH * 0.46))}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("PLAY!", cx, btnCy + 1);
+
+          if (totalCompleted > 0 && minDim >= 260) {
+            ctx.font = `700 ${Math.max(12, Math.floor(subSize * 0.88))}px "Courier New", Courier, monospace`;
+            ctx.fillStyle = "#ff99cc";
+            ctx.fillText(`LETTERS TRACED: ${totalCompleted}`, cx, btnCy + btnH * 0.88);
+          }
+
+          ctx.restore();
+        }
+
+        function drawScoreHUD() {
+          if (state !== "tracing" && state !== "celebrate" && state !== "paused") return;
+          const minDim = Math.min(W, H);
+          const pad = Math.max(12, minDim * 0.028);
+          const hudFont = Math.max(15, Math.min(26, minDim * 0.052));
+          const letter = LETTERS[letterIndex];
+
+          ctx.save();
+          ctx.font = `900 ${hudFont}px "Courier New", Courier, monospace`;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "top";
+
+          const label = `★ ${sessionCount}`;
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText(label, pad + 2, pad + 2);
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText(label, pad, pad);
+
+          const subFont = Math.max(11, Math.floor(hudFont * 0.56));
+          ctx.font = `700 ${subFont}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#99eeff";
+          ctx.fillText(`${letter.char} • ${letterIndex + 1} / ${LETTERS.length}`, pad, pad + hudFont + 4);
+          ctx.restore();
+        }
+
+        function drawPausedOverlay() {
+          const minDim = Math.min(W, H);
+          ctx.save();
+          ctx.fillStyle = "rgba(10, 6, 28, 0.72)";
+          ctx.fillRect(0, 0, W, H);
+
+          const titleSize = Math.max(26, Math.min(58, minDim * 0.12));
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${titleSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText("PAUSED", W / 2, H / 2 - titleSize * 0.42);
+
+          const subSize = Math.max(14, Math.min(22, minDim * 0.045));
+          ctx.font = `700 ${subSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText("TAP OR PRESS SPACE", W / 2, H / 2 + titleSize * 0.42);
+          ctx.restore();
+        }
+
+        function drawEffects() {
+          for (const rg of rings) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, rg.alpha);
+            ctx.strokeStyle = rg.color;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(rg.x, rg.y, rg.r, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          for (const p of particles) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+            if (p.star) {
+              drawStarIcon(p.x, p.y, p.size, p.color);
+            } else {
+              ctx.fillStyle = p.color;
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, p.size * 0.6, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.restore();
+          }
+        }
+
+        function render() {
+          drawBackground();
+
+          if (state === "title") {
+            drawTitleScreen();
+          } else if (state === "tracing") {
+            drawTracingStage();
+          } else if (state === "celebrate") {
+            drawCelebrationStage();
+          } else if (state === "paused") {
+            if (stateBeforePause === "celebrate") {
+              drawCelebrationStage();
+            } else {
+              drawTracingStage();
+            }
+          }
+
+          drawEffects();
+          drawScoreHUD();
+
+          if (state === "paused") {
+            drawPausedOverlay();
+          }
+        }
+
+        let lastTime = performance.now();
+        function loop(now) {
+          const dt = Math.min((now - lastTime) / 1000, 0.05);
+          lastTime = now;
+          update(dt);
+          render();
+          requestAnimationFrame(loop);
+        }
+
+        // Event wiring
+        window.addEventListener("resize", resize);
+        if (typeof ResizeObserver === "function") {
+          new ResizeObserver(resize).observe(canvas);
+        }
+        window.addEventListener("blur", pauseIfActive);
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) pauseIfActive();
+        });
+        window.addEventListener("keydown", handleKeyDown, { passive: false });
+
+        canvas.addEventListener("pointerdown", handlePointerDown, { passive: false });
+        canvas.addEventListener("pointermove", handlePointerMove, { passive: false });
+        window.addEventListener("pointerup", handlePointerUp);
+        window.addEventListener("pointercancel", handlePointerUp);
+
+        // Boot
+        initStars();
+        resize();
+        syncHudButtons();
+        requestAnimationFrame(loop);
+      })();
+    </script>
+  </body>
+</html>

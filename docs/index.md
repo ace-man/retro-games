@@ -66,6 +66,7 @@ Exact filenames and display aliases (note non-English filenames and renamed clas
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `junior:bubble-pop` | `junior-games/bubble-pop.html` | Bubble Pop | Toddlers & kids, touch/click popping | Arcade | 2026 | `#ff6ec7` |
 | `junior:shape-tracer` | `junior-games/shape-tracer.html` | Shape Tracer | Toddlers & kids, shape tracing & spoken naming | Puzzle | 2026 | `#38d9ff` |
+| `junior:letter-tracer` | `junior-games/letter-tracer.html` | Letter Tracer | Toddlers & kids, A–Z letter tracing & phonics sounds | Puzzle | 2026 | `#ff9f43` |
 
 ---
 
