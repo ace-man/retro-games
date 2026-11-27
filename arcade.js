@@ -10,10 +10,37 @@
     owner: "",
     repo: "",
     branch: "", // Leave blank to use the repository's default branch
-    gamesDir: "games",
+    sections: {
+      arcade: {
+        dir: "games",
+        label: "Retro Arcade",
+        backLabel: "← Arcade",
+        countWord: " GAMES",
+        emptyText: "No games are on the arcade floor yet — check back soon!",
+        pageTitle: "Retro Arcade",
+        cardHeadingTag: "h2",
+        coinText: "INSERT COIN",
+        startText: "▶ PRESS START",
+      },
+      junior: {
+        dir: "junior-games",
+        label: "Junior Arcade",
+        backLabel: "← Junior Arcade",
+        countWord: " JUNIOR GAMES",
+        emptyText: "No junior games are ready yet — check back soon!",
+        pageTitle: "Junior Arcade | Retro Arcade",
+        cardHeadingTag: "h3",
+        coinText: "READY TO PLAY",
+        startText: "▶ TAP TO PLAY",
+      },
+    },
+    defaultSection: "arcade",
     dirCacheTtlMs: 10 * 60 * 1000, // 10 minutes before revalidating via ETag
     metaFetchConcurrency: 6,
   };
+
+  const SECTION_KEYS = Object.keys(CONFIG.sections);
+  const SUPPORTS_FOCUSGROUP = Object.hasOwn(HTMLElement.prototype, "focusGroup");
 
   const GENRE_COLORS = {
     Arcade: "var(--pac)",
@@ -31,6 +58,31 @@
   const CACHE_PREFIX = "retroArcade:v1:";
 
   const els = {
+    tablist: document.querySelector(".section-tablist"),
+    sectionTabs: Object.fromEntries(
+      SECTION_KEYS.map((key) => [key, document.querySelector(`[data-section-tab="${key}"]`)])
+    ),
+    sectionCounts: Object.fromEntries(
+      SECTION_KEYS.map((key) => [key, document.querySelector(`[data-section-count="${key}"]`)])
+    ),
+    sectionPanels: Object.fromEntries(
+      SECTION_KEYS.map((key) => [key, document.querySelector(`[data-section-panel="${key}"]`)])
+    ),
+    sectionStatus: Object.fromEntries(
+      SECTION_KEYS.map((key) => [key, document.querySelector(`[data-status="${key}"]`)])
+    ),
+    sectionLoading: Object.fromEntries(
+      SECTION_KEYS.map((key) => [key, document.querySelector(`[data-loading="${key}"]`)])
+    ),
+    sectionGrids: Object.fromEntries(
+      SECTION_KEYS.map((key) => [key, document.querySelector(`[data-grid="${key}"]`)])
+    ),
+    sectionEmpty: Object.fromEntries(
+      SECTION_KEYS.map((key) => [key, document.querySelector(`[data-empty="${key}"]`)])
+    ),
+    sectionEmptyReset: Object.fromEntries(
+      SECTION_KEYS.map((key) => [key, document.querySelector(`[data-empty-reset="${key}"]`)])
+    ),
     search: document.getElementById("search"),
     filterToggle: document.querySelector(".models-toggle"),
     filterValue: document.querySelector("[data-models-value]"),
@@ -39,11 +91,7 @@
     filterClear: document.querySelector(".models-clear"),
     sortButtons: Array.from(document.querySelectorAll(".sort-keys .chip")),
     count: document.querySelector("[data-count]"),
-    status: document.querySelector("[data-status]"),
-    loading: document.querySelector("[data-loading]"),
-    grid: document.querySelector(".grid"),
-    gameOver: document.querySelector(".game-over"),
-    gameOverReset: document.querySelector(".game-over-reset"),
+    countWord: document.querySelector("[data-count-word]"),
     play: document.querySelector(".play"),
     playBack: document.querySelector(".play-back"),
     playName: document.getElementById("play-name"),
@@ -57,17 +105,33 @@
     detailsBody: document.querySelector(".details-body"),
   };
 
+  function createSectionState() {
+    return {
+      games: [],
+      loaded: false,
+      query: "",
+      selectedGenres: new Set(),
+      selectedTags: new Set(),
+      sortKey: "added",
+      sortDir: "desc",
+    };
+  }
+
   const state = {
-    games: [],
-    query: "",
-    selectedGenres: new Set(),
-    selectedTags: new Set(),
-    sortKey: "added",
-    sortDir: "desc",
+    activeSection: CONFIG.defaultSection,
+    sections: Object.fromEntries(SECTION_KEYS.map((key) => [key, createSectionState()])),
     activeGame: null,
     playFrame: null,
     lastFocused: null,
   };
+
+  function getActiveState() {
+    return state.sections[state.activeSection];
+  }
+
+  function getAllGames() {
+    return SECTION_KEYS.flatMap((key) => state.sections[key].games);
+  }
 
   // ---------------------------------------------------------------------------
   // Repo detection
@@ -135,9 +199,9 @@
   // ---------------------------------------------------------------------------
   // GitHub API + HTML metadata loader
   // ---------------------------------------------------------------------------
-  async function fetchDirectoryListing(repoInfo) {
+  async function fetchDirectoryListing(repoInfo, dir) {
     const { owner, repo, branch } = repoInfo;
-    const cacheKey = `dir:${owner}/${repo}/${CONFIG.gamesDir}:${branch || "default"}`;
+    const cacheKey = `dir:${owner}/${repo}/${dir}:${branch || "default"}`;
     const cached = readCache(cacheKey);
     const now = Date.now();
 
@@ -146,7 +210,7 @@
     }
 
     const refQuery = branch ? `?ref=${encodeURIComponent(branch)}` : "";
-    const apiUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodeURIComponent(CONFIG.gamesDir)}${refQuery}`;
+    const apiUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodeURIComponent(dir)}${refQuery}`;
 
     const headers = { Accept: "application/vnd.github+json" };
     if (cached && cached.etag) {
@@ -159,6 +223,11 @@
       if (res.status === 304 && cached) {
         writeCache(cacheKey, { ...cached, fetchedAt: now });
         return { files: cached.files, fromStaleCache: false };
+      }
+
+      if (res.status === 404) {
+        writeCache(cacheKey, { etag: "", fetchedAt: now, files: [] });
+        return { files: [], fromStaleCache: false };
       }
 
       if (!res.ok) {
@@ -236,14 +305,14 @@
     return { title, description, genre, tags, added, year, controls, author, color };
   }
 
-  async function fetchGameMeta(file) {
+  async function fetchGameMeta(file, dir, sectionKey) {
     const cacheKey = `meta:${file.sha}`;
     const cached = readCache(cacheKey);
     if (cached && cached.title) {
-      return buildGameRecord(file, cached);
+      return buildGameRecord(file, cached, dir, sectionKey);
     }
 
-    const relativeUrl = `./${CONFIG.gamesDir}/${encodeURIComponent(file.name)}`;
+    const relativeUrl = `./${dir}/${encodeURIComponent(file.name)}`;
     let html = "";
 
     // Fetch from same-origin CDN first (zero API quota), then fall back to raw URL
@@ -278,15 +347,17 @@
         };
 
     if (html) writeCache(cacheKey, parsed);
-    return buildGameRecord(file, parsed);
+    return buildGameRecord(file, parsed, dir, sectionKey);
   }
 
-  function buildGameRecord(file, meta) {
+  function buildGameRecord(file, meta, dir, sectionKey) {
     const addedTs = meta.added && !Number.isNaN(Date.parse(meta.added)) ? Date.parse(meta.added) : 0;
     const accent = meta.color || GENRE_COLORS[meta.genre] || "var(--pac)";
     return {
-      id: file.name,
-      url: `./${CONFIG.gamesDir}/${encodeURIComponent(file.name)}`,
+      id: `${sectionKey}/${file.name}`,
+      fileName: file.name,
+      section: sectionKey,
+      url: `./${dir}/${encodeURIComponent(file.name)}`,
       sha: file.sha,
       title: meta.title || prettifyFilename(file.name),
       description: meta.description || "",
@@ -340,17 +411,89 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Section switching (Retro Arcade <-> Junior Arcade)
+  // ---------------------------------------------------------------------------
+  function setActiveSection(sectionKey, { updateHash = true, scrollTab = true } = {}) {
+    if (!CONFIG.sections[sectionKey]) return;
+
+    state.activeSection = sectionKey;
+    document.body.dataset.section = sectionKey;
+    document.title = CONFIG.sections[sectionKey].pageTitle;
+
+    for (const key of SECTION_KEYS) {
+      const isSelected = key === sectionKey;
+      const tab = els.sectionTabs[key];
+      const panel = els.sectionPanels[key];
+
+      if (tab) {
+        tab.setAttribute("aria-selected", String(isSelected));
+        tab.toggleAttribute("focusgroupstart", isSelected);
+        if (!SUPPORTS_FOCUSGROUP) {
+          tab.tabIndex = isSelected ? 0 : -1;
+        }
+        if (isSelected && scrollTab) {
+          try {
+            tab.scrollIntoView({ block: "nearest", inline: "nearest", container: "nearest" });
+          } catch {
+            tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+          }
+        }
+      }
+
+      if (panel) {
+        if (isSelected) {
+          panel.hidden = false;
+        } else {
+          panel.setAttribute("hidden", "until-found");
+        }
+      }
+    }
+
+    // Close filter dropdown when switching spaces
+    if (!els.filterPanel.hidden) {
+      els.filterPanel.hidden = true;
+      els.filterToggle.setAttribute("aria-expanded", "false");
+    }
+
+    const activeState = getActiveState();
+    els.search.value = activeState.query;
+    els.search.placeholder =
+      sectionKey === "junior" ? "junior game, tag, color…" : "game title, genre, tag…";
+    els.countWord.textContent = CONFIG.sections[sectionKey].countWord;
+
+    renderFilterPanel();
+    updateSortChips();
+    renderSectionGrid(sectionKey);
+    observeActivePreviews();
+
+    if (updateHash && !state.activeGame) {
+      const targetHash = sectionKey === CONFIG.defaultSection ? "" : `#${sectionKey}`;
+      if (location.hash !== targetHash) {
+        history.replaceState({ section: sectionKey }, "", location.pathname + location.search + targetHash);
+      }
+    }
+  }
+
+  function updateSectionCountBadge(sectionKey) {
+    const badge = els.sectionCounts[sectionKey];
+    if (!badge) return;
+    const secState = state.sections[sectionKey];
+    badge.textContent = secState.loaded ? String(secState.games.length) : "--";
+  }
+
+  // ---------------------------------------------------------------------------
   // Filtering & sorting
   // ---------------------------------------------------------------------------
-  function getVisibleGames() {
-    const q = state.query.trim().toLowerCase();
+  function getVisibleGames(sectionKey = state.activeSection) {
+    const secState = state.sections[sectionKey];
+    const q = secState.query.trim().toLowerCase();
 
-    const filtered = state.games.filter((g) => {
-      if (state.selectedGenres.size > 0 && !state.selectedGenres.has(g.genre)) {
+    const filtered = secState.games.filter((g) => {
+      if (secState.selectedGenres.size > 0 && !secState.selectedGenres.has(g.genre)) {
         return false;
       }
-      if (state.selectedTags.size > 0) {
-        for (const tag of state.selectedTags) {
+      if (secState.selectedTags.size > 0) {
+        for (const tag of secState.selectedTags) {
           if (!g.tags.includes(tag)) return false;
         }
       }
@@ -361,10 +504,10 @@
       return true;
     });
 
-    const dir = state.sortDir === "asc" ? 1 : -1;
+    const dir = secState.sortDir === "asc" ? 1 : -1;
     filtered.sort((a, b) => {
       let cmp = 0;
-      switch (state.sortKey) {
+      switch (secState.sortKey) {
         case "added":
           cmp = (a.addedTs || 0) - (b.addedTs || 0);
           break;
@@ -389,10 +532,11 @@
   // Filter dropdown rendering (Genres + Tags)
   // ---------------------------------------------------------------------------
   function renderFilterPanel() {
+    const secState = getActiveState();
     const genreCounts = new Map();
     const tagCounts = new Map();
 
-    for (const g of state.games) {
+    for (const g of secState.games) {
       genreCounts.set(g.genre, (genreCounts.get(g.genre) || 0) + 1);
       for (const t of g.tags) {
         tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
@@ -412,7 +556,7 @@
             .map(
               ([genre, count]) => `
             <label class="models-option">
-              <input type="checkbox" data-filter-type="genre" value="${escapeHtml(genre)}" ${state.selectedGenres.has(genre) ? "checked" : ""} />
+              <input type="checkbox" data-filter-type="genre" value="${escapeHtml(genre)}" ${secState.selectedGenres.has(genre) ? "checked" : ""} />
               <span class="models-name">${escapeHtml(genre)}</span>
               <span class="models-count">${count}</span>
             </label>`
@@ -430,7 +574,7 @@
             .map(
               ([tag, count]) => `
             <label class="models-option">
-              <input type="checkbox" data-filter-type="tag" value="${escapeHtml(tag)}" ${state.selectedTags.has(tag) ? "checked" : ""} />
+              <input type="checkbox" data-filter-type="tag" value="${escapeHtml(tag)}" ${secState.selectedTags.has(tag) ? "checked" : ""} />
               <span class="models-name">#${escapeHtml(tag)}</span>
               <span class="models-count">${count}</span>
             </label>`
@@ -445,14 +589,17 @@
   }
 
   function updateFilterSummary() {
-    const totalSelected = state.selectedGenres.size + state.selectedTags.size;
+    const secState = getActiveState();
+    const totalSelected = secState.selectedGenres.size + secState.selectedTags.size;
     els.filterClear.disabled = totalSelected === 0;
     els.filterToggle.classList.toggle("is-active", totalSelected > 0);
 
     if (totalSelected === 0) {
       els.filterValue.textContent = "All";
     } else if (totalSelected === 1) {
-      const only = state.selectedGenres.size ? [...state.selectedGenres][0] : `#${[...state.selectedTags][0]}`;
+      const only = secState.selectedGenres.size
+        ? [...secState.selectedGenres][0]
+        : `#${[...secState.selectedTags][0]}`;
       els.filterValue.textContent = only;
     } else {
       els.filterValue.textContent = `${totalSelected} selected`;
@@ -485,8 +632,16 @@
     { rootMargin: "150px 0px" }
   );
 
+  function observeActivePreviews() {
+    previewObserver.disconnect();
+    const grid = els.sectionGrids[state.activeSection];
+    if (!grid) return;
+    grid.querySelectorAll(".cab-screen").forEach((screen) => previewObserver.observe(screen));
+  }
+
   function buildDetailMarkup(game) {
     const rows = [["Genre", game.genre]];
+    if (game.section === "junior") rows.push(["Section", "Junior Arcade"]);
     if (game.year) rows.push(["Year", game.year]);
     if (game.added) rows.push(["Added", formatDate(game.added)]);
     if (game.author) rows.push(["By", game.author]);
@@ -522,18 +677,25 @@
     `;
   }
 
-  function renderGrid() {
-    previewObserver.disconnect();
-    const visible = getVisibleGames();
+  function renderSectionGrid(sectionKey = state.activeSection) {
+    const secConfig = CONFIG.sections[sectionKey];
+    const secState = state.sections[sectionKey];
+    const grid = els.sectionGrids[sectionKey];
+    const emptyEl = els.sectionEmpty[sectionKey];
+    const visible = getVisibleGames(sectionKey);
 
-    els.count.textContent = `${visible.length} / ${state.games.length}`;
-    els.gameOver.hidden = visible.length > 0 || state.games.length === 0;
+    if (sectionKey === state.activeSection) {
+      els.count.textContent = secState.loaded ? `${visible.length} / ${secState.games.length}` : "--";
+    }
+
+    emptyEl.hidden = visible.length > 0 || secState.games.length === 0;
 
     if (visible.length === 0) {
-      els.grid.innerHTML = "";
+      grid.innerHTML = "";
       return;
     }
 
+    const headingTag = secConfig.cardHeadingTag;
     const frag = document.createDocumentFragment();
 
     visible.forEach((game, idx) => {
@@ -544,15 +706,15 @@
 
       const tagsHtml = game.tags
         .map((tag) => {
-          const active = state.selectedTags.has(tag) ? " is-active" : "";
+          const active = secState.selectedTags.has(tag) ? " is-active" : "";
           return `<button type="button" class="cab-tag${active}" data-tag-pill="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`;
         })
         .join("");
 
       card.innerHTML = `
         <div class="cab-screen" data-src="${escapeHtml(game.url)}" data-title="${escapeHtml(game.title)}">
-          <span class="cab-coin">INSERT COIN</span>
-          <span class="cab-start">▶ PRESS START</span>
+          <span class="cab-coin">${escapeHtml(secConfig.coinText)}</span>
+          <span class="cab-start">${escapeHtml(secConfig.startText)}</span>
         </div>
         <div class="cab-body">
           <div class="cab-top">
@@ -562,11 +724,11 @@
             </span>
             <span class="cab-score">${game.year ? `<b>${escapeHtml(game.year)}</b>` : ""}</span>
           </div>
-          <h2 class="cab-model">
+          <${headingTag} class="cab-model">
             <a class="cab-link" href="${escapeHtml(game.url)}" data-play-id="${escapeHtml(game.id)}">
               ${escapeHtml(game.title)}
             </a>
-          </h2>
+          </${headingTag}>
           ${game.description ? `<p class="cab-asked">${escapeHtml(game.description)}</p>` : ""}
           ${tagsHtml ? `<div class="cab-tags">${tagsHtml}</div>` : ""}
           <dl class="cab-stats">
@@ -591,19 +753,26 @@
       frag.appendChild(card);
     });
 
-    els.grid.innerHTML = "";
-    els.grid.appendChild(frag);
+    grid.innerHTML = "";
+    grid.appendChild(frag);
 
-    els.grid.querySelectorAll(".cab-screen").forEach((screen) => previewObserver.observe(screen));
+    if (sectionKey === state.activeSection) {
+      observeActivePreviews();
+    }
   }
 
   // ---------------------------------------------------------------------------
   // In-page Arcade Overlay + Fullscreen Toggle + Details Dialog
   // ---------------------------------------------------------------------------
   function openGame(game, { pushHash = true } = {}) {
+    if (game.section !== state.activeSection) {
+      setActiveSection(game.section, { updateHash: false, scrollTab: false });
+    }
+
     state.activeGame = game;
     state.lastFocused = document.activeElement;
 
+    els.playBack.textContent = CONFIG.sections[game.section]?.backLabel || "← Arcade";
     els.playName.textContent = game.title;
     els.playStats.innerHTML = `
       <div class="cab-stat"><dt>GENRE</dt><dd data-field="score">${escapeHtml(game.genre)}</dd></div>
@@ -661,7 +830,8 @@
     state.activeGame = null;
 
     if (updateHash && location.hash.startsWith("#play=")) {
-      history.pushState(null, "", location.pathname + location.search);
+      const sectionHash = state.activeSection === CONFIG.defaultSection ? "" : `#${state.activeSection}`;
+      history.pushState({ section: state.activeSection }, "", location.pathname + location.search + sectionHash);
     }
 
     if (state.lastFocused && typeof state.lastFocused.focus === "function") {
@@ -695,33 +865,93 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Sort chips & UI wiring
+  // Sort chips & status helpers
   // ---------------------------------------------------------------------------
   function updateSortChips() {
+    const secState = getActiveState();
     for (const btn of els.sortButtons) {
       const key = btn.dataset.sort;
       const label = btn.dataset.label;
-      const isActive = key === state.sortKey;
+      const isActive = key === secState.sortKey;
       btn.setAttribute("aria-pressed", String(isActive));
-      btn.textContent = isActive ? `${label} ${state.sortDir === "asc" ? "↑" : "↓"}` : label;
+      btn.textContent = isActive ? `${label} ${secState.sortDir === "asc" ? "↑" : "↓"}` : label;
     }
   }
 
-  function showStatus(text, { isError = false } = {}) {
-    els.status.textContent = text;
-    els.status.classList.toggle("is-error", isError);
-    els.status.hidden = false;
+  function showStatus(sectionKey, text, { isError = false } = {}) {
+    const statusEl = els.sectionStatus[sectionKey];
+    if (!statusEl) return;
+    statusEl.textContent = text;
+    statusEl.classList.toggle("is-error", isError);
+    statusEl.hidden = false;
   }
 
-  function hideStatus() {
-    els.status.hidden = true;
-    els.status.textContent = "";
+  function hideStatus(sectionKey) {
+    const statusEl = els.sectionStatus[sectionKey];
+    if (!statusEl) return;
+    statusEl.hidden = true;
+    statusEl.textContent = "";
   }
 
+  // ---------------------------------------------------------------------------
+  // Event wiring
+  // ---------------------------------------------------------------------------
   function wireEvents() {
+    // Section tab clicks (selection by activation)
+    SECTION_KEYS.forEach((key) => {
+      const tab = els.sectionTabs[key];
+      if (!tab) return;
+
+      tab.addEventListener("click", () => {
+        if (state.activeSection !== key) {
+          setActiveSection(key);
+        }
+      });
+
+      // Sync active section when browser Find-in-Page reveals a hidden="until-found" panel
+      const panel = els.sectionPanels[key];
+      if (panel) {
+        panel.addEventListener("beforematch", () => {
+          if (state.activeSection !== key) {
+            setActiveSection(key, { scrollTab: false });
+          }
+        });
+      }
+    });
+
+    // Roving arrow-key fallback for browsers without native focusgroup support
+    if (els.tablist && !SUPPORTS_FOCUSGROUP) {
+      els.tablist.addEventListener("keydown", (e) => {
+        const currentTab = e.target.closest('[role="tab"]');
+        if (!currentTab) return;
+
+        const tabs = SECTION_KEYS.map((key) => els.sectionTabs[key]).filter(Boolean);
+        const idx = tabs.indexOf(currentTab);
+        if (idx === -1) return;
+
+        let nextIdx = idx;
+        if (e.key === "ArrowRight") nextIdx = (idx + 1) % tabs.length;
+        else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + tabs.length) % tabs.length;
+        else if (e.key === "Home") nextIdx = 0;
+        else if (e.key === "End") nextIdx = tabs.length - 1;
+        else return;
+
+        e.preventDefault();
+        tabs.forEach((t, i) => {
+          t.tabIndex = i === nextIdx ? 0 : -1;
+        });
+        tabs[nextIdx].focus();
+      });
+    } else if (SUPPORTS_FOCUSGROUP) {
+      // Remove manual tabindex=-1 when native focusgroup handles roving focus
+      SECTION_KEYS.forEach((key) => {
+        els.sectionTabs[key]?.removeAttribute("tabindex");
+      });
+    }
+
     els.search.addEventListener("input", (e) => {
-      state.query = e.target.value;
-      renderGrid();
+      getActiveState().query = e.target.value;
+      renderSectionGrid(state.activeSection);
     });
 
     document.addEventListener("keydown", (e) => {
@@ -755,62 +985,71 @@
     els.filterList.addEventListener("change", (e) => {
       const input = e.target;
       if (!input.matches("input[type='checkbox']")) return;
-      const targetSet = input.dataset.filterType === "genre" ? state.selectedGenres : state.selectedTags;
+      const secState = getActiveState();
+      const targetSet = input.dataset.filterType === "genre" ? secState.selectedGenres : secState.selectedTags;
       if (input.checked) targetSet.add(input.value);
       else targetSet.delete(input.value);
       updateFilterSummary();
-      renderGrid();
+      renderSectionGrid(state.activeSection);
     });
 
     els.filterClear.addEventListener("click", () => {
-      state.selectedGenres.clear();
-      state.selectedTags.clear();
+      const secState = getActiveState();
+      secState.selectedGenres.clear();
+      secState.selectedTags.clear();
       renderFilterPanel();
-      renderGrid();
+      renderSectionGrid(state.activeSection);
     });
 
     els.sortButtons.forEach((btn) => {
       btn.addEventListener("click", () => {
+        const secState = getActiveState();
         const key = btn.dataset.sort;
-        if (state.sortKey === key) {
-          state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+        if (secState.sortKey === key) {
+          secState.sortDir = secState.sortDir === "asc" ? "desc" : "asc";
         } else {
-          state.sortKey = key;
-          state.sortDir = key === "title" || key === "genre" ? "asc" : "desc";
+          secState.sortKey = key;
+          secState.sortDir = key === "title" || key === "genre" ? "asc" : "desc";
         }
         updateSortChips();
-        renderGrid();
+        renderSectionGrid(state.activeSection);
       });
     });
 
-    els.gameOverReset.addEventListener("click", () => {
-      state.query = "";
-      els.search.value = "";
-      state.selectedGenres.clear();
-      state.selectedTags.clear();
-      renderFilterPanel();
-      renderGrid();
-    });
-
-    els.grid.addEventListener("click", (e) => {
-      const tagBtn = e.target.closest("[data-tag-pill]");
-      if (tagBtn) {
-        e.preventDefault();
-        e.stopPropagation();
-        const tag = tagBtn.dataset.tagPill;
-        if (state.selectedTags.has(tag)) state.selectedTags.delete(tag);
-        else state.selectedTags.add(tag);
+    SECTION_KEYS.forEach((sectionKey) => {
+      const resetBtn = els.sectionEmptyReset[sectionKey];
+      resetBtn?.addEventListener("click", () => {
+        const secState = state.sections[sectionKey];
+        secState.query = "";
+        if (state.activeSection === sectionKey) els.search.value = "";
+        secState.selectedGenres.clear();
+        secState.selectedTags.clear();
         renderFilterPanel();
-        renderGrid();
-        return;
-      }
+        renderSectionGrid(sectionKey);
+      });
 
-      const playLink = e.target.closest("[data-play-id]");
-      if (playLink && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        const game = state.games.find((g) => g.id === playLink.dataset.playId);
-        if (game) openGame(game);
-      }
+      const grid = els.sectionGrids[sectionKey];
+      grid?.addEventListener("click", (e) => {
+        const tagBtn = e.target.closest("[data-tag-pill]");
+        if (tagBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const secState = state.sections[sectionKey];
+          const tag = tagBtn.dataset.tagPill;
+          if (secState.selectedTags.has(tag)) secState.selectedTags.delete(tag);
+          else secState.selectedTags.add(tag);
+          renderFilterPanel();
+          renderSectionGrid(sectionKey);
+          return;
+        }
+
+        const playLink = e.target.closest("[data-play-id]");
+        if (playLink && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          const game = state.sections[sectionKey].games.find((g) => g.id === playLink.dataset.playId);
+          if (game) openGame(game);
+        }
+      });
     });
 
     els.playBack.addEventListener("click", () => closeGame());
@@ -831,60 +1070,125 @@
     window.addEventListener("hashchange", syncFromHash);
   }
 
+  function findGameByPlayParam(rawId) {
+    const allGames = getAllGames();
+    // Exact section-qualified match first (e.g. "junior/bubble-pop.html")
+    const exact = allGames.find((g) => g.id === rawId);
+    if (exact) return exact;
+
+    // Legacy filename-only fallback (e.g. "snack-man.html") — check active section first, then default
+    const activeMatch = state.sections[state.activeSection].games.find((g) => g.fileName === rawId);
+    if (activeMatch) return activeMatch;
+    return allGames.find((g) => g.fileName === rawId) || null;
+  }
+
+  function detectInitialSection() {
+    const hash = location.hash.toLowerCase();
+    if (hash === "#junior" || hash === "#section=junior") return "junior";
+    if (hash === "#arcade" || hash === "#section=arcade") return "arcade";
+
+    const params = new URLSearchParams(location.search);
+    const paramSection = (params.get("section") || "").toLowerCase();
+    if (CONFIG.sections[paramSection]) return paramSection;
+
+    return CONFIG.defaultSection;
+  }
+
   function syncFromHash() {
-    const match = location.hash.match(/^#play=(.+)$/);
-    if (match) {
-      const id = decodeURIComponent(match[1]);
-      const game = state.games.find((g) => g.id === id);
+    const playMatch = location.hash.match(/^#play=(.+)$/);
+    if (playMatch) {
+      const id = decodeURIComponent(playMatch[1]);
+      const game = findGameByPlayParam(id);
       if (game && state.activeGame?.id !== game.id) {
         openGame(game, { pushHash: false });
       }
-    } else if (state.activeGame) {
+      return;
+    }
+
+    if (state.activeGame) {
       closeGame({ updateHash: false });
+    }
+
+    const hashSection = location.hash.replace(/^#(?:section=)?/, "").toLowerCase();
+    if (CONFIG.sections[hashSection] && hashSection !== state.activeSection) {
+      setActiveSection(hashSection, { updateHash: false });
     }
   }
 
   // ---------------------------------------------------------------------------
   // Main boot flow
   // ---------------------------------------------------------------------------
+  async function loadSection(repoInfo, sectionKey) {
+    const secConfig = CONFIG.sections[sectionKey];
+    const secState = state.sections[sectionKey];
+    hideStatus(sectionKey);
+    els.sectionLoading[sectionKey].hidden = false;
+
+    const listing = await fetchDirectoryListing(repoInfo, secConfig.dir);
+    secState.games = await mapWithConcurrency(listing.files, CONFIG.metaFetchConcurrency, (file) =>
+      fetchGameMeta(file, secConfig.dir, sectionKey)
+    );
+    secState.loaded = true;
+    els.sectionLoading[sectionKey].hidden = true;
+    updateSectionCountBadge(sectionKey);
+    renderSectionGrid(sectionKey);
+
+    if (secState.games.length === 0) {
+      showStatus(sectionKey, secConfig.emptyText);
+    }
+
+    return listing.files.map((f) => f.sha);
+  }
+
   async function loadGames() {
-    hideStatus();
-    els.loading.hidden = false;
+    const initialSection = detectInitialSection();
+    setActiveSection(initialSection, { updateHash: false, scrollTab: false });
 
     const repoInfo = detectRepo();
     if (!repoInfo) {
       console.warn(
         "[Retro Arcade] Could not auto-detect repository. Set CONFIG.owner and CONFIG.repo in arcade.js or open with ?repo=owner/repo."
       );
-      els.loading.hidden = true;
+      SECTION_KEYS.forEach((key) => {
+        els.sectionLoading[key].hidden = true;
+        state.sections[key].loaded = true;
+        updateSectionCountBadge(key);
+        showStatus(key, "The arcade is getting set up — check back soon!", { isError: false });
+      });
       els.count.textContent = "0 / 0";
-      showStatus("The arcade is getting set up — check back soon!", { isError: false });
       return;
     }
 
-    try {
-      const listing = await fetchDirectoryListing(repoInfo);
-      const validShas = new Set(listing.files.map((f) => f.sha));
-      pruneMetaCache(validShas);
+    const results = await Promise.allSettled(SECTION_KEYS.map((key) => loadSection(repoInfo, key)));
 
-      state.games = await mapWithConcurrency(listing.files, CONFIG.metaFetchConcurrency, fetchGameMeta);
+    const allValidShas = new Set();
+    let allSucceeded = true;
 
-      els.loading.hidden = true;
-      renderFilterPanel();
-      updateSortChips();
-      renderGrid();
-      syncFromHash();
-
-      if (state.games.length === 0) {
-        showStatus("No games are on the arcade floor yet — check back soon!");
+    results.forEach((res, idx) => {
+      const key = SECTION_KEYS[idx];
+      if (res.status === "fulfilled") {
+        for (const sha of res.value) allValidShas.add(sha);
+      } else {
+        allSucceeded = false;
+        els.sectionLoading[key].hidden = true;
+        state.sections[key].loaded = true;
+        updateSectionCountBadge(key);
+        showStatus(
+          key,
+          res.reason?.message || "Couldn't load the game library right now. Please try again shortly.",
+          { isError: true }
+        );
       }
-    } catch (err) {
-      els.loading.hidden = true;
-      els.count.textContent = "0 / 0";
-      showStatus(err.message || "Couldn't load the game library right now. Please try again shortly.", {
-        isError: true,
-      });
+    });
+
+    if (allSucceeded) {
+      pruneMetaCache(allValidShas);
     }
+
+    renderFilterPanel();
+    updateSortChips();
+    renderSectionGrid(state.activeSection);
+    syncFromHash();
   }
 
   wireEvents();

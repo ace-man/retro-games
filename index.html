@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Retro Arcade: play classic arcade games right in your browser—no downloads or installs required." />
+    <meta name="description" content="Retro Arcade: play classic arcade games and toddler-friendly junior games right in your browser—no downloads or installs required." />
     <meta name="theme-color" content="#000000" />
     <title>Retro Arcade</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 16 L30 7 A15 15 0 1 0 30 25 Z' fill='%23ffd60a'/%3E%3C/svg%3E" />
@@ -135,6 +135,49 @@
     </header>
 
     <main id="entries" class="arcade" tabindex="-1">
+      <div class="section-switcher">
+        <div
+          class="section-tablist"
+          role="tablist"
+          focusgroup="tablist nomemory"
+          aria-label="Game collections"
+        >
+          <button
+            type="button"
+            class="section-tab section-tab--arcade"
+            id="tab-arcade"
+            role="tab"
+            aria-selected="true"
+            focusgroupstart
+            data-section-tab="arcade"
+          >
+            <span class="section-tab-icon" aria-hidden="true">🕹️</span>
+            <span class="section-tab-text">
+              <span class="section-tab-title">Retro Arcade</span>
+              <span class="section-tab-sub">Classic cabinets</span>
+            </span>
+            <span class="section-tab-count" data-section-count="arcade">--</span>
+          </button>
+
+          <button
+            type="button"
+            class="section-tab section-tab--junior"
+            id="tab-junior"
+            role="tab"
+            aria-selected="false"
+            tabindex="-1"
+            data-section-tab="junior"
+          >
+            <span class="section-tab-icon" aria-hidden="true">🫧</span>
+            <span class="section-tab-text">
+              <span class="section-tab-title">Junior Arcade</span>
+              <span class="section-tab-sub">Toddlers &amp; kids</span>
+            </span>
+            <span class="section-tab-count" data-section-count="junior">--</span>
+          </button>
+        </div>
+      </div>
+
       <div class="controls" role="search">
         <div class="search">
           <label class="search-label" for="search">SEARCH</label>
@@ -180,17 +223,64 @@
           </div>
         </div>
 
-        <p class="count" aria-live="polite"><span data-count>--</span><span class="count-word"> GAMES</span></p>
+        <p class="count" aria-live="polite"><span data-count>--</span><span class="count-word" data-count-word> GAMES</span></p>
       </div>
 
-      <div class="status-banner" data-status hidden></div>
-      <div class="loading-state" data-loading>WARMING UP THE ARCADE…</div>
-      <div class="grid"></div>
+      <div class="section-panels">
+        <div
+          id="panel-arcade"
+          class="section-panel"
+          role="tabpanel"
+          aria-labelledby="tab-arcade"
+          data-section-panel="arcade"
+        >
+          <div class="section-panel-inner">
+            <div class="status-banner" data-status="arcade" hidden></div>
+            <div class="loading-state" data-loading="arcade">WARMING UP THE ARCADE…</div>
+            <div class="grid" data-grid="arcade"></div>
 
-      <div class="game-over" hidden>
-        <p class="game-over-title">GAME OVER</p>
-        <p class="game-over-text">No games match your search.</p>
-        <button type="button" class="game-over-reset">SHOW ALL GAMES</button>
+            <div class="game-over" data-empty="arcade" hidden>
+              <p class="game-over-title">GAME OVER</p>
+              <p class="game-over-text">No games match your search.</p>
+              <button type="button" class="game-over-reset" data-empty-reset="arcade">SHOW ALL GAMES</button>
+            </div>
+          </div>
+        </div>
+
+        <div
+          id="panel-junior"
+          class="section-panel"
+          role="tabpanel"
+          aria-labelledby="tab-junior"
+          data-section-panel="junior"
+          hidden="until-found"
+        >
+          <div class="section-panel-inner junior-space">
+            <div class="junior-hero">
+              <div class="junior-hero-bubbles" aria-hidden="true">
+                <span class="junior-bubble junior-bubble--1"></span>
+                <span class="junior-bubble junior-bubble--2"></span>
+                <span class="junior-bubble junior-bubble--3"></span>
+                <span class="junior-bubble junior-bubble--4"></span>
+              </div>
+              <p class="junior-hero-eyebrow">TODDLER &amp; PRESCHOOL CORNER</p>
+              <h2 class="junior-hero-title">Junior Arcade</h2>
+              <p class="junior-hero-lead">
+                Big targets, bright colors, and cheerful sounds — gentle tap-and-play games built for little hands.
+              </p>
+            </div>
+
+            <div class="status-banner status-banner--junior" data-status="junior" hidden></div>
+            <div class="loading-state loading-state--junior" data-loading="junior">BLOWING UP THE BUBBLES…</div>
+            <div class="grid grid--junior" data-grid="junior"></div>
+
+            <div class="game-over game-over--junior" data-empty="junior" hidden>
+              <p class="game-over-title">NO GAMES FOUND</p>
+              <p class="game-over-text">No junior games match your search.</p>
+              <button type="button" class="game-over-reset" data-empty-reset="junior">SHOW ALL JUNIOR GAMES</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <noscript><p class="noscript">Turn on JavaScript to power up the arcade.</p></noscript>
@@ -223,8 +313,8 @@
 
     <footer class="footer">
       <p>
-        Pick any cabinet to jump straight in. Use Search, Genre &amp; Tag filters, or Sort to find your next favorite
-        classic.
+        Switch between Retro Arcade and Junior Arcade above, then pick any cabinet to jump straight in. Use Search,
+        Genre &amp; Tag filters, or Sort to find your next favorite game.
       </p>
     </footer>
   </body>
