@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bubble Pop</title>
+    <meta
+      name="description"
+      content="Toddler-friendly retro bubble popping game with bright bubbles, cheerful sounds, and gradually rising speed."
+    />
+    <meta name="game:genre" content="Arcade" />
+    <meta name="game:tags" content="toddler, kids, 1-player, touch, endless" />
+    <meta name="game:added" content="2026-11-27" />
+    <meta name="game:year" content="2026" />
+    <meta
+      name="game:controls"
+      content="Tap or click bubbles to pop them, Space or Enter to start, P to pause, M to mute"
+    />
+    <meta name="game:author" content="Arcade Bot" />
+    <meta name="game:color" content="#ff6ec7" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        font-family: "Courier New", Courier, monospace;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      #game {
+        display: block;
+        width: 100%;
+        height: 100%;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game" aria-label="Bubble Pop retro arcade game"></canvas>
+
+    <script>
+      (() => {
+        "use strict";
+
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
+
+        const STORAGE_KEY = "bubble-pop:highscore";
+
+        // Cheerful high-contrast retro candy palette
+        const PALETTE = [
+          { fill: "#ff5ca8", glow: "#ff99cc", rim: "#ffd6ec" }, // Bubblegum Pink
+          { fill: "#38d9ff", glow: "#99eeff", rim: "#e0faff" }, // Electric Cyan
+          { fill: "#ffe14d", glow: "#fff099", rim: "#fffbe0" }, // Sunny Yellow
+          { fill: "#66ff66", glow: "#b3ffb3", rim: "#e6ffe6" }, // Arcade Lime
+          { fill: "#b57bff", glow: "#d9bdff", rim: "#f3e8ff" }, // Neon Lavender
+          { fill: "#ff8c42", glow: "#ffc299", rim: "#fff0e6" }  // Tangerine
+        ];
+
+        // Pentatonic scale frequencies (always sounds happy and musical)
+        const NOTES = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99];
+
+        let W = 320;
+        let H = 320;
+        let dpr = 1;
+
+        // Game state: "title" | "playing" | "paused" | "gameover"
+        let state = "title";
+        let score = 0;
+        let highScore = loadHighScore();
+        let elapsed = 0;
+        let spawnTimer = 0;
+        let speedMultiplier = 1;
+        let gameOverLock = 0;
+        let muted = false;
+        let noteIndex = 0;
+
+        // Entities
+        let bubbles = [];
+        let particles = [];
+        let rings = [];
+        let floatTexts = [];
+        let stars = [];
+
+        // Track active pointers so toddlers can tap or drag to pop
+        const activePointers = new Set();
+
+        // HUD hit regions (updated on draw)
+        let muteBtnRect = { x: 0, y: 0, w: 0, h: 0 };
+        let pauseBtnRect = { x: 0, y: 0, w: 0, h: 0 };
+
+        // Web Audio API (initialized lazily on first user gesture)
+        let audioCtx = null;
+
+        function loadHighScore() {
+          try {
+            const val = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+            return Number.isFinite(val) && val > 0 ? val : 0;
+          } catch (_) {
+            return 0;
+          }
+        }
+
+        function saveHighScore(val) {
+          try {
+            localStorage.setItem(STORAGE_KEY, String(val));
+          } catch (_) {
+            // Ignore storage errors in sandboxed iframes
+          }
+        }
+
+        function ensureAudio() {
+          if (!audioCtx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {
+              audioCtx = new AudioCtx();
+            }
+          }
+          if (audioCtx && audioCtx.state === "suspended") {
+            audioCtx.resume().catch(() => {});
+          }
+        }
+
+        function playPopSound() {
+          if (muted || !audioCtx) return;
+          const now = audioCtx.currentTime;
+          const freq = NOTES[noteIndex % NOTES.length];
+          noteIndex = (noteIndex + 1) % NOTES.length;
+
+          // Bubble pop upward chirp
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq * 0.75, now);
+          osc.frequency.exponentialRampToValueAtTime(freq * 1.65, now + 0.09);
+
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.linearRampToValueAtTime(0.24, now + 0.012);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.17);
+
+          // Bright arcade sparkle overtone
+          const chime = audioCtx.createOscillator();
+          const chimeGain = audioCtx.createGain();
+          chime.type = "triangle";
+          chime.frequency.setValueAtTime(freq * 2, now + 0.02);
+          chimeGain.gain.setValueAtTime(0.001, now + 0.02);
+          chimeGain.gain.linearRampToValueAtTime(0.11, now + 0.035);
+          chimeGain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+          chime.connect(chimeGain);
+          chimeGain.connect(audioCtx.destination);
+          chime.start(now + 0.02);
+          chime.stop(now + 0.23);
+        }
+
+        function playStartSound() {
+          if (muted || !audioCtx) return;
+          const now = audioCtx.currentTime;
+          const arp = [261.63, 329.63, 392.0, 523.25];
+          arp.forEach((f, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "square";
+            const t = now + i * 0.06;
+            osc.frequency.setValueAtTime(f, t);
+            gain.gain.setValueAtTime(0.001, t);
+            gain.gain.linearRampToValueAtTime(0.09, t + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(t);
+            osc.stop(t + 0.13);
+          });
+        }
+
+        function playMissSound() {
+          if (muted || !audioCtx) return;
+          const now = audioCtx.currentTime;
+          const tones = [392.0, 329.63, 261.63];
+          tones.forEach((f, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "triangle";
+            const t = now + i * 0.11;
+            osc.frequency.setValueAtTime(f, t);
+            osc.frequency.exponentialRampToValueAtTime(f * 0.88, t + 0.14);
+            gain.gain.setValueAtTime(0.001, t);
+            gain.gain.linearRampToValueAtTime(0.16, t + 0.015);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(t);
+            osc.stop(t + 0.19);
+          });
+        }
+
+        function initStars() {
+          stars = [];
+          const count = 42;
+          for (let i = 0; i < count; i++) {
+            stars.push({
+              x: Math.random(),
+              y: Math.random(),
+              r: 1 + Math.random() * 2.2,
+              phase: Math.random() * Math.PI * 2,
+              speed: 1.2 + Math.random() * 2.2
+            });
+          }
+        }
+
+        function resize() {
+          const rect = canvas.getBoundingClientRect();
+          W = Math.max(1, rect.width);
+          H = Math.max(1, rect.height);
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.width = Math.floor(W * dpr);
+          canvas.height = Math.floor(H * dpr);
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+
+        function getBubbleRadius() {
+          const minDim = Math.min(W, H);
+          const base = minDim * 0.115;
+          const clamped = Math.max(32, Math.min(82, base));
+          return clamped * (0.88 + Math.random() * 0.24);
+        }
+
+        function spawnBubble(isAttract = false) {
+          const r = getBubbleRadius();
+          const pad = Math.min(W * 0.45, r + 14);
+          const x = pad + Math.random() * Math.max(1, W - pad * 2);
+          const y = isAttract ? Math.random() * H : H + r + 8;
+
+          // Base speed in fraction of viewport height per second (gentle start for a 2-year-old)
+          const baseFrac = isAttract ? 0.12 : 0.105 * speedMultiplier;
+          const vy = Math.min(H * 0.46, H * baseFrac * (0.9 + Math.random() * 0.2));
+
+          const color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+          bubbles.push({
+            x,
+            baseX: x,
+            y,
+            r,
+            vy,
+            color,
+            wobbleAmp: Math.min(26, r * 0.38) * (0.5 + Math.random() * 0.5),
+            wobbleFreq: 1.4 + Math.random() * 1.4,
+            phase: Math.random() * Math.PI * 2,
+            smile: Math.random() < 0.72
+          });
+        }
+
+        function seedAttractBubbles() {
+          bubbles = [];
+          particles = [];
+          rings = [];
+          floatTexts = [];
+          for (let i = 0; i < 7; i++) {
+            spawnBubble(true);
+          }
+        }
+
+        function startGame() {
+          ensureAudio();
+          state = "playing";
+          score = 0;
+          elapsed = 0;
+          speedMultiplier = 1;
+          spawnTimer = 0.25;
+          noteIndex = 0;
+          bubbles = [];
+          particles = [];
+          rings = [];
+          floatTexts = [];
+          spawnBubble(false);
+          playStartSound();
+        }
+
+        function triggerGameOver() {
+          state = "gameover";
+          gameOverLock = 0.65;
+          if (score > highScore) {
+            highScore = score;
+            saveHighScore(highScore);
+          }
+          playMissSound();
+        }
+
+        function createPopEffects(b) {
+          rings.push({
+            x: b.x,
+            y: b.y,
+            r: b.r * 0.65,
+            maxR: b.r * 1.85,
+            alpha: 1,
+            color: b.color.rim
+          });
+
+          const count = 16;
+          for (let i = 0; i < count; i++) {
+            const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.3;
+            const speed = 75 + Math.random() * 175;
+            particles.push({
+              x: b.x,
+              y: b.y,
+              vx: Math.cos(angle) * speed,
+              vy: Math.sin(angle) * speed,
+              size: 4 + Math.random() * 6,
+              color: i % 3 === 0 ? "#ffffff" : b.color.fill,
+              life: 0.45 + Math.random() * 0.25,
+              maxLife: 0.7,
+              star: i % 2 === 0
+            });
+          }
+
+          floatTexts.push({
+            x: b.x,
+            y: b.y,
+            text: "POP!",
+            color: b.color.rim,
+            life: 0.65,
+            maxLife: 0.65
+          });
+        }
+
+        function tryPopAt(px, py) {
+          if (state !== "playing") return false;
+
+          // Check topmost bubbles first with generous toddler-friendly hitbox (1.32x radius)
+          for (let i = bubbles.length - 1; i >= 0; i--) {
+            const b = bubbles[i];
+            const dx = px - b.x;
+            const dy = py - b.y;
+            const hitR = b.r * 1.32;
+            if (dx * dx + dy * dy <= hitR * hitR) {
+              bubbles.splice(i, 1);
+              score += 1;
+              if (score > highScore) {
+                highScore = score;
+                saveHighScore(highScore);
+              }
+              createPopEffects(b);
+              playPopSound();
+
+              // Ensure a toddler never stares at an empty screen for long
+              if (bubbles.length === 0 && spawnTimer > 0.35) {
+                spawnTimer = 0.35;
+              }
+              return true;
+            }
+          }
+          return false;
+        }
+
+        function inRect(x, y, r) {
+          return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+        }
+
+        function handlePointerDown(e) {
+          e.preventDefault();
+          ensureAudio();
+
+          const rect = canvas.getBoundingClientRect();
+          const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
+
+          if (inRect(px, py, muteBtnRect)) {
+            muted = !muted;
+            return;
+          }
+
+          if ((state === "playing" || state === "paused") && inRect(px, py, pauseBtnRect)) {
+            state = state === "playing" ? "paused" : "playing";
+            return;
+          }
+
+          if (state === "title") {
+            startGame();
+            return;
+          }
+
+          if (state === "paused") {
+            state = "playing";
+            return;
+          }
+
+          if (state === "gameover") {
+            if (gameOverLock <= 0) {
+              startGame();
+            }
+            return;
+          }
+
+          activePointers.add(e.pointerId);
+          tryPopAt(px, py);
+        }
+
+        function handlePointerMove(e) {
+          if (!activePointers.has(e.pointerId)) return;
+          if (state !== "playing") return;
+          e.preventDefault();
+          const rect = canvas.getBoundingClientRect();
+          const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
+          tryPopAt(px, py);
+        }
+
+        function handlePointerUp(e) {
+          activePointers.delete(e.pointerId);
+        }
+
+        function handleKeyDown(e) {
+          if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", " "].includes(e.key) || e.code === "Space") {
+            e.preventDefault();
+          }
+
+          ensureAudio();
+
+          const key = e.key.toLowerCase();
+          if (key === "m") {
+            muted = !muted;
+            return;
+          }
+
+          if (key === "p" || key === "escape") {
+            if (state === "playing") {
+              state = "paused";
+            } else if (state === "paused") {
+              state = "playing";
+            }
+            return;
+          }
+
+          if (e.code === "Space" || e.key === "Enter") {
+            if (state === "title") {
+              startGame();
+            } else if (state === "paused") {
+              state = "playing";
+            } else if (state === "gameover" && gameOverLock <= 0) {
+              startGame();
+            }
+          }
+        }
+
+        function pauseIfPlaying() {
+          if (state === "playing") {
+            state = "paused";
+          }
+        }
+
+        function update(dt) {
+          elapsed += dt;
+
+          if (state === "gameover" && gameOverLock > 0) {
+            gameOverLock = Math.max(0, gameOverLock - dt);
+          }
+
+          // Update particles
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vy += 180 * dt;
+            p.life -= dt;
+            if (p.life <= 0) particles.splice(i, 1);
+          }
+
+          // Update pop rings
+          for (let i = rings.length - 1; i >= 0; i--) {
+            const rg = rings[i];
+            rg.r += (rg.maxR - rg.r) * Math.min(1, dt * 11);
+            rg.alpha -= dt * 2.6;
+            if (rg.alpha <= 0) rings.splice(i, 1);
+          }
+
+          // Update floating texts
+          for (let i = floatTexts.length - 1; i >= 0; i--) {
+            const ft = floatTexts[i];
+            ft.y -= 52 * dt;
+            ft.life -= dt;
+            if (ft.life <= 0) floatTexts.splice(i, 1);
+          }
+
+          // Title / attract mode animation
+          if (state === "title") {
+            for (const b of bubbles) {
+              b.y -= b.vy * dt;
+              b.x = b.baseX + Math.sin(elapsed * b.wobbleFreq + b.phase) * b.wobbleAmp;
+              if (b.y + b.r < -10) {
+                b.y = H + b.r + 10;
+                const pad = Math.min(W * 0.45, b.r + 14);
+                b.baseX = pad + Math.random() * Math.max(1, W - pad * 2);
+              }
+            }
+            return;
+          }
+
+          if (state !== "playing") return;
+
+          // Smoothly increase bubble speed as score and time grow
+          speedMultiplier = Math.min(3.6, 1 + score * 0.045 + elapsed * 0.008);
+
+          // Spawn cadence gently speeds up while staying toddler-friendly
+          spawnTimer -= dt;
+          const maxOnScreen = Math.min(7, 2 + Math.floor(score / 6));
+          if (spawnTimer <= 0 && bubbles.length < maxOnScreen) {
+            spawnBubble(false);
+            const interval = Math.max(0.55, 1.95 / Math.pow(speedMultiplier, 0.72));
+            spawnTimer = interval;
+          }
+
+          // Move bubbles upward; if any bubble escapes the top edge, game over
+          for (let i = bubbles.length - 1; i >= 0; i--) {
+            const b = bubbles[i];
+            b.y -= b.vy * dt;
+            b.x = Math.max(
+              b.r + 4,
+              Math.min(W - b.r - 4, b.baseX + Math.sin(elapsed * b.wobbleFreq + b.phase) * b.wobbleAmp)
+            );
+
+            if (b.y + b.r < 0) {
+              triggerGameOver();
+              return;
+            }
+          }
+        }
+
+        function drawBackground() {
+          const grad = ctx.createLinearGradient(0, 0, 0, H);
+          grad.addColorStop(0, "#120b2e");
+          grad.addColorStop(0.55, "#1d1b52");
+          grad.addColorStop(1, "#123466");
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, W, H);
+
+          // Twinkling retro arcade stars
+          for (const s of stars) {
+            const alpha = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(elapsed * s.speed + s.phase));
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(2)})`;
+            ctx.fillRect(Math.floor(s.x * W), Math.floor(s.y * H), Math.ceil(s.r), Math.ceil(s.r));
+          }
+
+          // Subtle CRT scanline sheen
+          ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
+          for (let y = 0; y < H; y += 4) {
+            ctx.fillRect(0, y, W, 1);
+          }
+        }
+
+        function drawBubble(b) {
+          ctx.save();
+
+          // Gentle warning pulse if bubble is close to the top edge during gameplay
+          const nearTop = state === "playing" && b.y < b.r * 2.2;
+          const pulse = nearTop ? 1 + 0.06 * Math.sin(elapsed * 22) : 1;
+          const r = b.r * pulse;
+
+          // Outer glow
+          const glow = ctx.createRadialGradient(b.x, b.y, r * 0.2, b.x, b.y, r * 1.15);
+          glow.addColorStop(0, b.color.fill + "55");
+          glow.addColorStop(0.72, b.color.fill + "bb");
+          glow.addColorStop(1, b.color.glow + "00");
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, r * 1.15, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Main bubble body
+          const body = ctx.createRadialGradient(
+            b.x - r * 0.3,
+            b.y - r * 0.3,
+            r * 0.08,
+            b.x,
+            b.y,
+            r
+          );
+          body.addColorStop(0, "#ffffffcc");
+          body.addColorStop(0.28, b.color.glow + "cc");
+          body.addColorStop(0.78, b.color.fill + "cc");
+          body.addColorStop(1, b.color.rim + "ee");
+
+          ctx.fillStyle = body;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Crisp retro rim
+          ctx.lineWidth = Math.max(2.5, r * 0.06);
+          ctx.strokeStyle = nearTop ? "#ffffff" : b.color.rim;
+          ctx.stroke();
+
+          // Glossy specular shine
+          ctx.fillStyle = "rgba(255, 255, 255, 0.78)";
+          ctx.beginPath();
+          ctx.ellipse(
+            b.x - r * 0.34,
+            b.y - r * 0.34,
+            r * 0.22,
+            r * 0.12,
+            -Math.PI / 4,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+
+          // Friendly cute face for toddlers
+          if (b.smile) {
+            ctx.fillStyle = "#1a1033";
+            const eyeY = b.y - r * 0.06;
+            const eyeX = r * 0.24;
+            const eyeR = Math.max(2.5, r * 0.085);
+            ctx.beginPath();
+            ctx.arc(b.x - eyeX, eyeY, eyeR, 0, Math.PI * 2);
+            ctx.arc(b.x + eyeX, eyeY, eyeR, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = "#1a1033";
+            ctx.lineWidth = Math.max(2.2, r * 0.065);
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            ctx.arc(b.x, b.y + r * 0.06, r * 0.22, 0.15 * Math.PI, 0.85 * Math.PI);
+            ctx.stroke();
+          }
+
+          ctx.restore();
+        }
+
+        function drawStar(x, y, size, color) {
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          for (let i = 0; i < 5; i++) {
+            const a1 = (i * 2 * Math.PI) / 5 - Math.PI / 2;
+            const a2 = a1 + Math.PI / 5;
+            const rx = x + Math.cos(a1) * size;
+            const ry = y + Math.sin(a1) * size;
+            const ix = x + Math.cos(a2) * (size * 0.45);
+            const iy = y + Math.sin(a2) * (size * 0.45);
+            if (i === 0) ctx.moveTo(rx, ry);
+            else ctx.lineTo(rx, ry);
+            ctx.lineTo(ix, iy);
+          }
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        function drawEffects() {
+          for (const rg of rings) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, rg.alpha);
+            ctx.strokeStyle = rg.color;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(rg.x, rg.y, rg.r, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          for (const p of particles) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+            if (p.star) {
+              drawStar(p.x, p.y, p.size, p.color);
+            } else {
+              ctx.fillStyle = p.color;
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, p.size * 0.6, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.restore();
+          }
+
+          const fontSize = Math.max(16, Math.min(28, Math.min(W, H) * 0.055));
+          ctx.font = `900 ${fontSize}px "Courier New", Courier, monospace`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          for (const ft of floatTexts) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, ft.life / ft.maxLife);
+            ctx.fillStyle = "#120b2e";
+            ctx.fillText(ft.text, ft.x + 2, ft.y + 2);
+            ctx.fillStyle = ft.color;
+            ctx.fillText(ft.text, ft.x, ft.y);
+            ctx.restore();
+          }
+        }
+
+        function drawRoundedBox(x, y, w, h, r, fill, stroke) {
+          ctx.beginPath();
+          ctx.moveTo(x + r, y);
+          ctx.lineTo(x + w - r, y);
+          ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+          ctx.lineTo(x + w, y + h - r);
+          ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+          ctx.lineTo(x + r, y + h);
+          ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+          ctx.lineTo(x, y + r);
+          ctx.quadraticCurveTo(x, y, x + r, y);
+          ctx.closePath();
+          if (fill) {
+            ctx.fillStyle = fill;
+            ctx.fill();
+          }
+          if (stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+          }
+        }
+
+        function drawHUD() {
+          const minDim = Math.min(W, H);
+          const pad = Math.max(10, minDim * 0.025);
+          const btnSize = Math.max(30, Math.min(44, minDim * 0.095));
+
+          // Mute button (top-right)
+          muteBtnRect = { x: W - pad - btnSize, y: pad, w: btnSize, h: btnSize };
+          drawRoundedBox(
+            muteBtnRect.x,
+            muteBtnRect.y,
+            muteBtnRect.w,
+            muteBtnRect.h,
+            8,
+            "rgba(18, 11, 46, 0.72)",
+            muted ? "#ff5ca8" : "#38d9ff"
+          );
+          ctx.fillStyle = muted ? "#ff5ca8" : "#ffffff";
+          ctx.font = `900 ${Math.floor(btnSize * 0.48)}px "Courier New", Courier, monospace`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(muted ? "X" : "♪", muteBtnRect.x + btnSize / 2, muteBtnRect.y + btnSize / 2 + 1);
+
+          if (state === "playing" || state === "paused") {
+            // Pause button next to mute
+            pauseBtnRect = {
+              x: muteBtnRect.x - btnSize - 8,
+              y: pad,
+              w: btnSize,
+              h: btnSize
+            };
+            drawRoundedBox(
+              pauseBtnRect.x,
+              pauseBtnRect.y,
+              pauseBtnRect.w,
+              pauseBtnRect.h,
+              8,
+              "rgba(18, 11, 46, 0.72)",
+              "#ffe14d"
+            );
+            ctx.fillStyle = "#ffe14d";
+            ctx.fillText(
+              state === "paused" ? "▶" : "II",
+              pauseBtnRect.x + btnSize / 2,
+              pauseBtnRect.y + btnSize / 2 + 1
+            );
+
+            // Score & Best (top-left)
+            const hudFont = Math.max(15, Math.min(28, minDim * 0.055));
+            ctx.font = `900 ${hudFont}px "Courier New", Courier, monospace`;
+            ctx.textAlign = "left";
+            ctx.textBaseline = "top";
+            ctx.fillStyle = "#120b2e";
+            ctx.fillText(`POP: ${score}`, pad + 2, pad + 2);
+            ctx.fillStyle = "#ffe14d";
+            ctx.fillText(`POP: ${score}`, pad, pad);
+
+            const subFont = Math.max(11, Math.floor(hudFont * 0.56));
+            ctx.font = `700 ${subFont}px "Courier New", Courier, monospace`;
+            ctx.fillStyle = "#99eeff";
+            ctx.fillText(`BEST: ${highScore}`, pad, pad + hudFont + 4);
+          } else {
+            pauseBtnRect = { x: -100, y: -100, w: 0, h: 0 };
+          }
+        }
+
+        function drawTitleOverlay() {
+          const minDim = Math.min(W, H);
+          const titleSize = Math.max(28, Math.min(72, minDim * 0.145));
+          const cx = W / 2;
+          const cy = H / 2;
+          const bob = Math.sin(elapsed * 3.2) * 6;
+
+          ctx.save();
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          // Retro arcade title with drop shadow
+          ctx.font = `900 ${titleSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("BUBBLE POP", cx + 4, cy - titleSize * 0.65 + bob + 4);
+          ctx.fillStyle = "#ff6ec7";
+          ctx.fillText("BUBBLE POP", cx, cy - titleSize * 0.65 + bob);
+
+          // Subtitle
+          const subSize = Math.max(12, Math.min(22, minDim * 0.042));
+          ctx.font = `700 ${subSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#99eeff";
+          ctx.fillText("TAP THE BUBBLES!", cx, cy - titleSize * 0.05 + bob * 0.5);
+
+          // Big friendly pulsing PLAY button
+          const btnW = Math.max(150, Math.min(280, minDim * 0.55));
+          const btnH = Math.max(46, Math.min(74, minDim * 0.14));
+          const pulse = 1 + 0.045 * Math.sin(elapsed * 5);
+          const pw = btnW * pulse;
+          const ph = btnH * pulse;
+
+          drawRoundedBox(
+            cx - pw / 2,
+            cy + titleSize * 0.38 - ph / 2,
+            pw,
+            ph,
+            16,
+            "#66ff66",
+            "#ffffff"
+          );
+
+          ctx.font = `900 ${Math.max(18, Math.floor(btnH * 0.45))}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("PLAY!", cx, cy + titleSize * 0.38 + 1);
+
+          if (highScore > 0) {
+            ctx.font = `700 ${Math.max(12, Math.floor(subSize * 0.9))}px "Courier New", Courier, monospace`;
+            ctx.fillStyle = "#ffe14d";
+            ctx.fillText(`HIGH SCORE: ${highScore}`, cx, cy + titleSize * 0.38 + btnH * 0.85);
+          }
+
+          ctx.restore();
+        }
+
+        function drawPausedOverlay() {
+          const minDim = Math.min(W, H);
+          ctx.fillStyle = "rgba(10, 6, 28, 0.65)";
+          ctx.fillRect(0, 0, W, H);
+
+          const titleSize = Math.max(26, Math.min(58, minDim * 0.12));
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${titleSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText("PAUSED", W / 2, H / 2 - titleSize * 0.45);
+
+          const subSize = Math.max(14, Math.min(22, minDim * 0.045));
+          ctx.font = `700 ${subSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText("TAP OR PRESS SPACE", W / 2, H / 2 + titleSize * 0.45);
+        }
+
+        function drawGameOverOverlay() {
+          const minDim = Math.min(W, H);
+          ctx.fillStyle = "rgba(12, 8, 32, 0.72)";
+          ctx.fillRect(0, 0, W, H);
+
+          const cx = W / 2;
+          const cy = H / 2;
+          const boxW = Math.min(W * 0.88, Math.max(240, minDim * 0.76));
+          const boxH = Math.min(H * 0.78, Math.max(220, minDim * 0.64));
+
+          drawRoundedBox(
+            cx - boxW / 2,
+            cy - boxH / 2,
+            boxW,
+            boxH,
+            20,
+            "rgba(24, 18, 64, 0.94)",
+            "#ff6ec7"
+          );
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          const headSize = Math.max(22, Math.min(44, boxW * 0.11));
+          ctx.font = `900 ${headSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ff6ec7";
+          ctx.fillText("OOPS!", cx, cy - boxH * 0.3);
+
+          const subSize = Math.max(13, Math.min(22, boxW * 0.055));
+          ctx.font = `700 ${subSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#99eeff";
+          ctx.fillText("A BUBBLE GOT AWAY!", cx, cy - boxH * 0.14);
+
+          const scoreSize = Math.max(18, Math.min(34, boxW * 0.085));
+          ctx.font = `900 ${scoreSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText(`POPPED: ${score}`, cx, cy + boxH * 0.02);
+
+          ctx.font = `700 ${Math.max(12, Math.floor(subSize * 0.92))}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(`BEST: ${highScore}`, cx, cy + boxH * 0.14);
+
+          const btnW = boxW * 0.72;
+          const btnH = Math.max(42, boxH * 0.18);
+          const ready = gameOverLock <= 0;
+          drawRoundedBox(
+            cx - btnW / 2,
+            cy + boxH * 0.32 - btnH / 2,
+            btnW,
+            btnH,
+            14,
+            ready ? "#66ff66" : "#556677",
+            "#ffffff"
+          );
+
+          ctx.font = `900 ${Math.max(16, Math.floor(btnH * 0.44))}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("PLAY AGAIN", cx, cy + boxH * 0.32 + 1);
+        }
+
+        function render() {
+          drawBackground();
+
+          for (const b of bubbles) {
+            drawBubble(b);
+          }
+
+          drawEffects();
+          drawHUD();
+
+          if (state === "title") {
+            drawTitleOverlay();
+          } else if (state === "paused") {
+            drawPausedOverlay();
+          } else if (state === "gameover") {
+            drawGameOverOverlay();
+          }
+        }
+
+        let lastTime = performance.now();
+        function loop(now) {
+          const dt = Math.min((now - lastTime) / 1000, 0.05);
+          lastTime = now;
+          update(dt);
+          render();
+          requestAnimationFrame(loop);
+        }
+
+        // Event wiring
+        window.addEventListener("resize", resize);
+        window.addEventListener("blur", pauseIfPlaying);
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) pauseIfPlaying();
+        });
+        window.addEventListener("keydown", handleKeyDown, { passive: false });
+
+        canvas.addEventListener("pointerdown", handlePointerDown, { passive: false });
+        canvas.addEventListener("pointermove", handlePointerMove, { passive: false });
+        window.addEventListener("pointerup", handlePointerUp);
+        window.addEventListener("pointercancel", handlePointerUp);
+
+        // Boot
+        initStars();
+        resize();
+        seedAttractBubbles();
+        requestAnimationFrame(loop);
+      })();
+    </script>
+  </body>
+</html>
