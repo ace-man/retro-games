@@ -18,6 +18,7 @@ Fast lookup map of repository elements modeled as **nodes** and **edges** so LLM
 | `doc:index` | `doc` | `docs/index.md` | This graph-style repository index |
 | `doc:overview` | `doc` | `docs/implementation/overview.md` | Thin architecture and cross-file relationship overview |
 | `doc:agents` | `doc` | `AGENTS.md` | Agent workflow rules for using and maintaining `docs/index.md` and `docs/implementation/` |
+| `skill:retro-standard` | `skill` | `.agents/skills/retro-game-html-standard/SKILL.md` | Single-file HTML retro game metadata, embed, and validation standard |
 | `meta:readme` | `doc` | `README.md` | Short repository title and tagline |
 | `meta:license` | `config` | `LICENSE` | MIT License |
 
@@ -36,6 +37,7 @@ dir:games     --contains-->    game:*
 dir:junior-games --contains--> junior:*
 doc:agents    --governs-->     doc:index
 doc:agents    --governs-->     doc:overview
+skill:retro-standard --governs--> dir:games, dir:junior-games
 doc:overview  --describes-->   shell:index, shell:styles, shell:runtime, dir:games, dir:junior-games
 ```
 
@@ -63,6 +65,7 @@ Exact filenames and display aliases (note non-English filenames and renamed clas
 | Node ID | Path | Title | Audience / Notes | Genre | Year | Accent |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `junior:bubble-pop` | `junior-games/bubble-pop.html` | Bubble Pop | Toddlers & kids, touch/click popping | Arcade | 2026 | `#ff6ec7` |
+| `junior:shape-tracer` | `junior-games/shape-tracer.html` | Shape Tracer | Toddlers & kids, shape tracing & spoken naming | Puzzle | 2026 | `#38d9ff` |
 
 ---
 

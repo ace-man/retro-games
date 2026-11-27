@@ -1,0 +1,1731 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Shape Tracer</title>
+    <meta
+      name="description"
+      content="Toddler-friendly retro shape tracing game that builds hand-eye coordination and celebrates each shape by name."
+    />
+    <meta name="game:genre" content="Puzzle" />
+    <meta name="game:tags" content="toddler, kids, shapes, tracing, touch" />
+    <meta name="game:added" content="2026-11-27" />
+    <meta name="game:year" content="2026" />
+    <meta
+      name="game:controls"
+      content="Trace along the glowing dots with finger or mouse, tap finished shapes to hear their name, Space or Enter to start or continue, P to pause, M to mute"
+    />
+    <meta name="game:author" content="Arcade Bot" />
+    <meta name="game:color" content="#38d9ff" />
+    <style>
+      :root {
+        --target-size: 38px;
+        --hud-bg: rgba(18, 11, 46, 0.78);
+        --hud-border: #38d9ff;
+        --hud-text: #ffffff;
+        --focus-ring: #ffe14d;
+      }
+
+      @media (pointer: coarse) {
+        :root {
+          --target-size: 46px;
+        }
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        font-family: "Courier New", Courier, monospace;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      main.stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        container: stage / inline-size;
+      }
+
+      #game {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+        cursor: pointer;
+      }
+
+      .hud-bar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding-top: max(10px, env(safe-area-inset-top, 0px));
+        padding-right: max(10px, env(safe-area-inset-right, 0px));
+        padding-left: max(10px, env(safe-area-inset-left, 0px));
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      .hud-btn {
+        pointer-events: auto;
+        min-inline-size: var(--target-size);
+        min-block-size: var(--target-size);
+        padding: 4px 10px;
+        border-radius: 12px;
+        border: 2.5px solid var(--hud-border);
+        background: var(--hud-bg);
+        color: var(--hud-text);
+        font: 900 18px/1 "Courier New", Courier, monospace;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+        transition: transform 120ms ease, border-color 120ms ease, color 120ms ease;
+      }
+
+      .hud-btn:hover {
+        transform: scale(1.06);
+      }
+
+      .hud-btn:active {
+        transform: scale(0.95);
+      }
+
+      .hud-btn:focus-visible {
+        outline: 3px solid var(--focus-ring);
+        outline-offset: 3px;
+      }
+
+      .hud-btn[aria-pressed="true"] {
+        border-color: #ff5ca8;
+        color: #ff5ca8;
+      }
+
+      .hud-btn--pause {
+        border-color: #ffe14d;
+        color: #ffe14d;
+      }
+
+      .hud-btn--next {
+        border-color: #66ff66;
+        color: #66ff66;
+      }
+
+      .hud-btn[hidden] {
+        display: none;
+      }
+
+      /* Keep compact square gallery previews uncluttered */
+      @container stage (inline-size < 300px) {
+        .hud-bar {
+          display: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hud-btn {
+          transition: none;
+        }
+      }
+
+      .visually-hidden:where(:not(:focus-within, :active)) {
+        position: absolute !important;
+        clip-path: inset(50%) !important;
+        overflow: hidden !important;
+        width: 1px !important;
+        height: 1px !important;
+        margin: -1px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        white-space: nowrap !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="stage">
+      <h1 class="visually-hidden">Shape Tracer</h1>
+      <canvas id="game" aria-label="Shape Tracer toddler arcade game"></canvas>
+
+      <div class="hud-bar" role="toolbar" aria-label="Game controls">
+        <button
+          id="btn-skip"
+          class="hud-btn hud-btn--next"
+          type="button"
+          aria-label="Next shape"
+          hidden
+        >
+          <span aria-hidden="true">⏭</span>
+        </button>
+        <button
+          id="btn-pause"
+          class="hud-btn hud-btn--pause"
+          type="button"
+          aria-label="Pause game"
+          aria-pressed="false"
+          hidden
+        >
+          <span aria-hidden="true">II</span>
+        </button>
+        <button
+          id="btn-mute"
+          class="hud-btn"
+          type="button"
+          aria-label="Mute sound"
+          aria-pressed="false"
+        >
+          <span aria-hidden="true">♪</span>
+        </button>
+      </div>
+
+      <div id="live-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+    </main>
+
+    <script>
+      (() => {
+        "use strict";
+
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
+        const btnSkip = document.getElementById("btn-skip");
+        const btnPause = document.getElementById("btn-pause");
+        const btnMute = document.getElementById("btn-mute");
+        const liveStatus = document.getElementById("live-status");
+
+        const STORAGE_KEY = "shape-tracer:completed";
+        const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+        let reducedMotion = reducedMotionQuery.matches;
+        if (typeof reducedMotionQuery.addEventListener === "function") {
+          reducedMotionQuery.addEventListener("change", (ev) => {
+            reducedMotion = ev.matches;
+          });
+        }
+
+        // Cheerful pentatonic chime notes (always warm & musical)
+        const NOTES = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99];
+
+        // -------------------------------------------------------------------
+        // Shape Catalog (8 classic toddler-friendly shapes)
+        // Normalized around (0, 0) within roughly [-1, 1] x [-1, 1]
+        // -------------------------------------------------------------------
+        function makePolygonWaypoints(vertices, ptsPerEdge) {
+          const pts = [];
+          const count = vertices.length;
+          for (let i = 0; i < count; i++) {
+            const a = vertices[i];
+            const b = vertices[(i + 1) % count];
+            for (let s = 0; s < ptsPerEdge; s++) {
+              const t = s / ptsPerEdge;
+              pts.push({
+                x: a[0] + (b[0] - a[0]) * t,
+                y: a[1] + (b[1] - a[1]) * t,
+              });
+            }
+          }
+          pts.push({ x: vertices[0][0], y: vertices[0][1] });
+          return pts;
+        }
+
+        function resampleClosedCurve(rawPts, targetCount) {
+          const closed = rawPts.slice();
+          const first = closed[0];
+          const last = closed[closed.length - 1];
+          if (Math.hypot(first.x - last.x, first.y - last.y) > 0.001) {
+            closed.push({ x: first.x, y: first.y });
+          }
+
+          const dists = [0];
+          let totalLen = 0;
+          for (let i = 1; i < closed.length; i++) {
+            totalLen += Math.hypot(closed[i].x - closed[i - 1].x, closed[i].y - closed[i - 1].y);
+            dists.push(totalLen);
+          }
+
+          const out = [];
+          let seg = 0;
+          for (let i = 0; i < targetCount; i++) {
+            const target = (i / targetCount) * totalLen;
+            while (seg < dists.length - 2 && dists[seg + 1] < target) {
+              seg++;
+            }
+            const segLen = Math.max(1e-6, dists[seg + 1] - dists[seg]);
+            const localT = (target - dists[seg]) / segLen;
+            out.push({
+              x: closed[seg].x + (closed[seg + 1].x - closed[seg].x) * localT,
+              y: closed[seg].y + (closed[seg + 1].y - closed[seg].y) * localT,
+            });
+          }
+          out.push({ x: out[0].x, y: out[0].y });
+          return out;
+        }
+
+        function buildCirclePoints() {
+          const raw = [];
+          const steps = 160;
+          for (let i = 0; i <= steps; i++) {
+            const a = -Math.PI / 2 + (i / steps) * Math.PI * 2;
+            raw.push({ x: Math.cos(a) * 0.9, y: Math.sin(a) * 0.9 });
+          }
+          return resampleClosedCurve(raw, 48);
+        }
+
+        function buildOvalPoints() {
+          const raw = [];
+          const steps = 160;
+          for (let i = 0; i <= steps; i++) {
+            const a = -Math.PI / 2 + (i / steps) * Math.PI * 2;
+            raw.push({ x: Math.cos(a) * 1.05, y: Math.sin(a) * 0.72 });
+          }
+          return resampleClosedCurve(raw, 48);
+        }
+
+        function buildHeartPoints() {
+          const raw = [];
+          const steps = 200;
+          for (let i = 0; i <= steps; i++) {
+            const t = (i / steps) * Math.PI * 2;
+            const hx = 16 * Math.pow(Math.sin(t), 3);
+            const hy = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+            raw.push({ x: hx / 17.2, y: (hy - 1.6) / 17.2 });
+          }
+          return resampleClosedCurve(raw, 52);
+        }
+
+        function buildStarPoints() {
+          const verts = [];
+          const outerR = 0.98;
+          const innerR = 0.44;
+          for (let i = 0; i < 10; i++) {
+            const a = -Math.PI / 2 + (i * Math.PI) / 5;
+            const r = i % 2 === 0 ? outerR : innerR;
+            verts.push([Math.cos(a) * r, Math.sin(a) * r + 0.04]);
+          }
+          return makePolygonWaypoints(verts, 5);
+        }
+
+        const SHAPES = [
+          {
+            id: "circle",
+            name: "CIRCLE",
+            spoken: "Circle",
+            article: "a",
+            fill: "#ffe14d",
+            glow: "#fff099",
+            rim: "#fffbe0",
+            faceY: 0,
+            faceScale: 1,
+            points: buildCirclePoints(),
+            guideStep: 3,
+          },
+          {
+            id: "square",
+            name: "SQUARE",
+            spoken: "Square",
+            article: "a",
+            fill: "#38d9ff",
+            glow: "#99eeff",
+            rim: "#e0faff",
+            faceY: 0,
+            faceScale: 1,
+            points: makePolygonWaypoints(
+              [
+                [-0.8, -0.8],
+                [0.8, -0.8],
+                [0.8, 0.8],
+                [-0.8, 0.8],
+              ],
+              12
+            ),
+            guideStep: 3,
+          },
+          {
+            id: "triangle",
+            name: "TRIANGLE",
+            spoken: "Triangle",
+            article: "a",
+            fill: "#66ff66",
+            glow: "#b3ffb3",
+            rim: "#e6ffe6",
+            faceY: 0.2,
+            faceScale: 0.82,
+            points: makePolygonWaypoints(
+              [
+                [0, -0.92],
+                [0.92, 0.72],
+                [-0.92, 0.72],
+              ],
+              16
+            ),
+            guideStep: 4,
+          },
+          {
+            id: "heart",
+            name: "HEART",
+            spoken: "Heart",
+            article: "a",
+            fill: "#ff5ca8",
+            glow: "#ff99cc",
+            rim: "#ffd6ec",
+            faceY: -0.05,
+            faceScale: 0.86,
+            points: buildHeartPoints(),
+            guideStep: 4,
+          },
+          {
+            id: "star",
+            name: "STAR",
+            spoken: "Star",
+            article: "a",
+            fill: "#ff9f43",
+            glow: "#ffd099",
+            rim: "#fff2e0",
+            faceY: 0.06,
+            faceScale: 0.68,
+            points: buildStarPoints(),
+            guideStep: 5,
+          },
+          {
+            id: "diamond",
+            name: "DIAMOND",
+            spoken: "Diamond",
+            article: "a",
+            fill: "#b57bff",
+            glow: "#d9bdff",
+            rim: "#f3e8ff",
+            faceY: 0,
+            faceScale: 0.76,
+            points: makePolygonWaypoints(
+              [
+                [0, -0.96],
+                [0.76, 0],
+                [0, 0.96],
+                [-0.76, 0],
+              ],
+              12
+            ),
+            guideStep: 3,
+          },
+          {
+            id: "oval",
+            name: "OVAL",
+            spoken: "Oval",
+            article: "an",
+            fill: "#2ef2c9",
+            glow: "#9efae6",
+            rim: "#e2fff8",
+            faceY: 0,
+            faceScale: 0.88,
+            points: buildOvalPoints(),
+            guideStep: 3,
+          },
+          {
+            id: "rectangle",
+            name: "RECTANGLE",
+            spoken: "Rectangle",
+            article: "a",
+            fill: "#ff6b6b",
+            glow: "#ffb3b3",
+            rim: "#ffe5e5",
+            faceY: 0,
+            faceScale: 0.86,
+            points: makePolygonWaypoints(
+              [
+                [-1.02, -0.62],
+                [1.02, -0.62],
+                [1.02, 0.62],
+                [-1.02, 0.62],
+              ],
+              12
+            ),
+            guideStep: 3,
+          },
+        ];
+
+        // -------------------------------------------------------------------
+        // Game State
+        // -------------------------------------------------------------------
+        let W = 320;
+        let H = 320;
+        let dpr = 1;
+
+        // "title" | "tracing" | "celebrate" | "paused"
+        let state = "title";
+        let stateBeforePause = "tracing";
+        let elapsed = 0;
+        let muted = false;
+        let hasUserGesture = false;
+
+        let shapeIndex = 0;
+        let progressIndex = 0; // Index along current shape.points (0 .. points.length - 1)
+        let sessionCount = 0;
+        let totalCompleted = loadCompleted();
+
+        let idleTime = 0; // Seconds since last trace progress (shows gentle guiding comet)
+        let celebrateTime = 0;
+        let celebrateBounce = 0;
+        let nextBtnRect = { x: 0, y: 0, w: 0, h: 0 };
+        let titlePlayRect = { x: 0, y: 0, w: 0, h: 0 };
+
+        // Attract-mode demo tracer on title screen
+        let demoShapeIdx = 0;
+        let demoProgress = 0;
+
+        // Pointer tracking (supports multi-touch / stylus / mouse)
+        const activePointers = new Map();
+        let lastChimeTime = 0;
+        let chimeNoteIdx = 0;
+
+        // Visual FX entities
+        let stars = [];
+        let particles = [];
+        let rings = [];
+        let floatTexts = [];
+
+        // Web Audio API (initialized lazily on first user gesture)
+        let audioCtx = null;
+
+        function loadCompleted() {
+          try {
+            const val = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+            return Number.isFinite(val) && val > 0 ? val : 0;
+          } catch (_) {
+            return 0;
+          }
+        }
+
+        function saveCompleted(val) {
+          try {
+            localStorage.setItem(STORAGE_KEY, String(val));
+          } catch (_) {
+            // Ignore storage errors in sandboxed iframes
+          }
+        }
+
+        function announce(text) {
+          if (!liveStatus) return;
+          liveStatus.textContent = "";
+          requestAnimationFrame(() => {
+            liveStatus.textContent = text;
+          });
+        }
+
+        // -------------------------------------------------------------------
+        // Audio & Friendly Speech (never triggered before a user gesture)
+        // -------------------------------------------------------------------
+        function ensureAudio() {
+          hasUserGesture = true;
+          if (!audioCtx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {
+              audioCtx = new AudioCtx();
+            }
+          }
+          if (audioCtx && audioCtx.state === "suspended") {
+            audioCtx.resume().catch(() => {});
+          }
+        }
+
+        function playTraceChime(progressFrac) {
+          if (muted || !audioCtx || !hasUserGesture) return;
+          const nowMs = performance.now();
+          if (nowMs - lastChimeTime < 75) return;
+          lastChimeTime = nowMs;
+
+          const now = audioCtx.currentTime;
+          const notePos = Math.min(NOTES.length - 1, Math.floor(progressFrac * NOTES.length));
+          const freq = NOTES[(notePos + (chimeNoteIdx++ % 2)) % NOTES.length];
+
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, now);
+          osc.frequency.exponentialRampToValueAtTime(freq * 1.18, now + 0.08);
+
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.linearRampToValueAtTime(0.18, now + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.15);
+        }
+
+        function playStartSound() {
+          if (muted || !audioCtx || !hasUserGesture) return;
+          const now = audioCtx.currentTime;
+          const arp = [261.63, 329.63, 392.0, 523.25];
+          arp.forEach((f, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "triangle";
+            const t = now + i * 0.06;
+            osc.frequency.setValueAtTime(f, t);
+            gain.gain.setValueAtTime(0.001, t);
+            gain.gain.linearRampToValueAtTime(0.14, t + 0.012);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(t);
+            osc.stop(t + 0.15);
+          });
+        }
+
+        function playFanfare() {
+          if (muted || !audioCtx || !hasUserGesture) return;
+          const now = audioCtx.currentTime;
+          const melody = [
+            { f: 392.0, d: 0.0, len: 0.14 },
+            { f: 523.25, d: 0.1, len: 0.14 },
+            { f: 659.25, d: 0.2, len: 0.16 },
+            { f: 783.99, d: 0.32, len: 0.34 },
+          ];
+          melody.forEach((n) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "triangle";
+            const t = now + n.d;
+            osc.frequency.setValueAtTime(n.f, t);
+            gain.gain.setValueAtTime(0.001, t);
+            gain.gain.linearRampToValueAtTime(0.18, t + 0.015);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + n.len);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(t);
+            osc.stop(t + n.len + 0.02);
+          });
+        }
+
+        function playBoingSound() {
+          if (muted || !audioCtx || !hasUserGesture) return;
+          const now = audioCtx.currentTime;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(320, now);
+          osc.frequency.exponentialRampToValueAtTime(640, now + 0.12);
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.linearRampToValueAtTime(0.18, now + 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.19);
+        }
+
+        function speakShapeName(shape) {
+          if (muted || !hasUserGesture) return;
+          if (!("speechSynthesis" in window) || typeof window.SpeechSynthesisUtterance !== "function") {
+            return;
+          }
+          try {
+            window.speechSynthesis.cancel();
+            const utter = new SpeechSynthesisUtterance(shape.spoken + "!");
+            utter.lang = "en-US";
+            utter.rate = 0.88;
+            utter.pitch = 1.15;
+            utter.volume = 1.0;
+            const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+            const friendlyVoice =
+              voices.find((v) => /^en/i.test(v.lang) && /samantha|google us english|aria|jenny|karen|zira/i.test(v.name)) ||
+              voices.find((v) => /^en/i.test(v.lang));
+            if (friendlyVoice) {
+              utter.voice = friendlyVoice;
+            }
+            window.speechSynthesis.speak(utter);
+          } catch (_) {
+            // Gracefully ignore speech synthesis errors in restricted contexts
+          }
+        }
+
+        function cancelSpeech() {
+          try {
+            if ("speechSynthesis" in window) {
+              window.speechSynthesis.cancel();
+            }
+          } catch (_) {}
+        }
+
+        // -------------------------------------------------------------------
+        // Layout & Coordinate Mapping
+        // -------------------------------------------------------------------
+        function initStars() {
+          stars = [];
+          for (let i = 0; i < 42; i++) {
+            stars.push({
+              x: Math.random(),
+              y: Math.random(),
+              r: 1 + Math.random() * 2.2,
+              phase: Math.random() * Math.PI * 2,
+              speed: 1.1 + Math.random() * 2.0,
+            });
+          }
+        }
+
+        function resize() {
+          const rect = canvas.getBoundingClientRect();
+          W = Math.max(1, rect.width);
+          H = Math.max(1, rect.height);
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.width = Math.floor(W * dpr);
+          canvas.height = Math.floor(H * dpr);
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+
+        function getShapeMetrics(mode = state) {
+          const minDim = Math.min(W, H);
+          const hudTop = Math.max(44, minDim * 0.11);
+          const bottomPad = mode === "celebrate" ? Math.max(110, H * 0.28) : Math.max(36, H * 0.09);
+          const availH = Math.max(80, H - hudTop - bottomPad);
+          const availW = Math.max(80, W - Math.max(40, W * 0.12));
+          const maxScale = Math.min(availW * 0.44, availH * 0.44);
+          const scale = Math.max(38, Math.min(220, maxScale));
+          const cx = W / 2;
+          const cy =
+            mode === "celebrate"
+              ? hudTop + availH * 0.46
+              : hudTop + availH * 0.5;
+          return { cx, cy, scale };
+        }
+
+        function toScreen(pt, metrics) {
+          return {
+            x: metrics.cx + pt.x * metrics.scale,
+            y: metrics.cy + pt.y * metrics.scale,
+          };
+        }
+
+        // -------------------------------------------------------------------
+        // HUD Synchronization
+        // -------------------------------------------------------------------
+        function syncHudButtons() {
+          const inGame = state === "tracing" || state === "celebrate" || state === "paused";
+          btnPause.hidden = !inGame;
+          btnSkip.hidden = state !== "tracing" && state !== "celebrate";
+
+          btnPause.setAttribute("aria-pressed", String(state === "paused"));
+          btnPause.setAttribute("aria-label", state === "paused" ? "Resume game" : "Pause game");
+          btnPause.firstElementChild.textContent = state === "paused" ? "▶" : "II";
+
+          btnMute.setAttribute("aria-pressed", String(muted));
+          btnMute.setAttribute("aria-label", muted ? "Unmute sound" : "Mute sound");
+          btnMute.firstElementChild.textContent = muted ? "✕" : "♪";
+        }
+
+        // -------------------------------------------------------------------
+        // Game Transitions
+        // -------------------------------------------------------------------
+        function startGame() {
+          ensureAudio();
+          state = "tracing";
+          shapeIndex = 0;
+          sessionCount = 0;
+          loadShape(shapeIndex);
+          playStartSound();
+          syncHudButtons();
+        }
+
+        function loadShape(idx) {
+          cancelSpeech();
+          shapeIndex = ((idx % SHAPES.length) + SHAPES.length) % SHAPES.length;
+          progressIndex = 0;
+          idleTime = 0;
+          celebrateTime = 0;
+          celebrateBounce = 0;
+          state = "tracing";
+          activePointers.clear();
+          const shape = SHAPES[shapeIndex];
+          announce(`Trace the ${shape.spoken}.`);
+          syncHudButtons();
+        }
+
+        function completeShape() {
+          const shape = SHAPES[shapeIndex];
+          state = "celebrate";
+          celebrateTime = 0;
+          celebrateBounce = 1;
+          sessionCount += 1;
+          totalCompleted += 1;
+          saveCompleted(totalCompleted);
+          activePointers.clear();
+
+          // Celebration ring + confetti burst
+          const metrics = getShapeMetrics("celebrate");
+          rings.push({
+            x: metrics.cx,
+            y: metrics.cy,
+            r: metrics.scale * 0.55,
+            maxR: metrics.scale * 1.9,
+            alpha: 1,
+            color: shape.rim,
+          });
+
+          const burstCount = reducedMotion ? 12 : 34;
+          const confettiColors = ["#ffe14d", "#ff5ca8", "#38d9ff", "#66ff66", "#b57bff", "#ffffff", shape.fill];
+          for (let i = 0; i < burstCount; i++) {
+            const angle = (Math.PI * 2 * i) / burstCount + (Math.random() - 0.5) * 0.25;
+            const speed = (reducedMotion ? 55 : 110) + Math.random() * (reducedMotion ? 80 : 210);
+            particles.push({
+              x: metrics.cx + (Math.random() - 0.5) * metrics.scale * 0.4,
+              y: metrics.cy + (Math.random() - 0.5) * metrics.scale * 0.4,
+              vx: Math.cos(angle) * speed,
+              vy: Math.sin(angle) * speed - 40,
+              size: 5 + Math.random() * 8,
+              color: confettiColors[i % confettiColors.length],
+              life: 0.9 + Math.random() * 0.7,
+              maxLife: 1.6,
+              star: i % 3 !== 0,
+            });
+          }
+
+          playFanfare();
+          setTimeout(() => {
+            if (state === "celebrate") {
+              speakShapeName(shape);
+            }
+          }, 280);
+
+          announce(`Hooray! You traced ${shape.article} ${shape.spoken}!`);
+          syncHudButtons();
+        }
+
+        function spawnTraceSparkle(x, y, shape) {
+          const count = reducedMotion ? 2 : 5;
+          for (let i = 0; i < count; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const spd = 25 + Math.random() * 85;
+            particles.push({
+              x,
+              y,
+              vx: Math.cos(a) * spd,
+              vy: Math.sin(a) * spd,
+              size: 3.5 + Math.random() * 5,
+              color: i === 0 ? "#ffffff" : shape.fill,
+              life: 0.35 + Math.random() * 0.25,
+              maxLife: 0.6,
+              star: i % 2 === 0,
+            });
+          }
+        }
+
+        // -------------------------------------------------------------------
+        // Forgiving Toddler-Friendly Tracing Logic
+        // -------------------------------------------------------------------
+        function applyTraceSample(sx, sy, isInitialTap) {
+          if (state !== "tracing") return;
+          const shape = SHAPES[shapeIndex];
+          const pts = shape.points;
+          const lastIdx = pts.length - 1;
+          const metrics = getShapeMetrics("tracing");
+
+          // Big, forgiving toddler touch corridor
+          const hitRadius = Math.max(46, Math.min(88, metrics.scale * 0.38));
+          const hitR2 = hitRadius * hitRadius;
+          const lookAhead = 6;
+          const maxCandidate = Math.min(lastIdx, progressIndex + lookAhead);
+
+          let bestIdx = -1;
+          for (let i = progressIndex; i <= maxCandidate; i++) {
+            const p = toScreen(pts[i], metrics);
+            const dx = sx - p.x;
+            const dy = sy - p.y;
+            if (dx * dx + dy * dy <= hitR2) {
+              bestIdx = i;
+            }
+          }
+
+          // When nearly finished, magnet-snap cleanly to close the shape
+          if (bestIdx === -1 && progressIndex >= lastIdx - 4) {
+            const finishPt = toScreen(pts[lastIdx], metrics);
+            const dx = sx - finishPt.x;
+            const dy = sy - finishPt.y;
+            if (dx * dx + dy * dy <= hitR2 * 1.35) {
+              bestIdx = lastIdx;
+            }
+          }
+
+          if (bestIdx !== -1) {
+            const prevProgress = progressIndex;
+            // On a direct tap at the active dot, give a satisfying 2-step nudge
+            const nextProgress = isInitialTap
+              ? Math.min(lastIdx, Math.max(progressIndex + 2, bestIdx + 1))
+              : Math.min(lastIdx, Math.max(progressIndex, bestIdx + 1));
+
+            if (nextProgress > prevProgress) {
+              progressIndex = nextProgress;
+              idleTime = 0;
+
+              const reachedPt = toScreen(pts[Math.min(lastIdx, progressIndex)], metrics);
+              spawnTraceSparkle(reachedPt.x, reachedPt.y, shape);
+              playTraceChime(progressIndex / lastIdx);
+
+              if (progressIndex >= lastIdx) {
+                completeShape();
+              }
+            }
+          }
+        }
+
+        function traceSegment(x0, y0, x1, y1, isInitialTap) {
+          const dist = Math.hypot(x1 - x0, y1 - y0);
+          const step = 14;
+          const steps = Math.max(1, Math.ceil(dist / step));
+          for (let i = 1; i <= steps; i++) {
+            if (state !== "tracing") break;
+            const t = i / steps;
+            applyTraceSample(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, isInitialTap && i === 1);
+          }
+        }
+
+        function inRect(x, y, r) {
+          return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+        }
+
+        // -------------------------------------------------------------------
+        // Input Handlers
+        // -------------------------------------------------------------------
+        function handlePointerDown(e) {
+          e.preventDefault();
+          ensureAudio();
+
+          const rect = canvas.getBoundingClientRect();
+          const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
+
+          if (state === "title") {
+            startGame();
+            return;
+          }
+
+          if (state === "paused") {
+            state = stateBeforePause;
+            syncHudButtons();
+            return;
+          }
+
+          if (state === "celebrate") {
+            const shape = SHAPES[shapeIndex];
+            const metrics = getShapeMetrics("celebrate");
+            const distToShape = Math.hypot(px - metrics.cx, py - metrics.cy);
+
+            if (celebrateTime >= 0.95 && inRect(px, py, nextBtnRect)) {
+              loadShape(shapeIndex + 1);
+              playStartSound();
+              return;
+            }
+
+            // Tapping the presented shape repeats its spoken name & bounces!
+            if (distToShape <= metrics.scale * 1.05) {
+              celebrateBounce = 1;
+              playBoingSound();
+              speakShapeName(shape);
+              spawnTraceSparkle(px, py, shape);
+              return;
+            }
+
+            // Tapping anywhere else after celebration beat advances smoothly
+            if (celebrateTime >= 1.1) {
+              loadShape(shapeIndex + 1);
+              playStartSound();
+            }
+            return;
+          }
+
+          // Tracing mode
+          try {
+            canvas.setPointerCapture(e.pointerId);
+          } catch (_) {}
+          activePointers.set(e.pointerId, { x: px, y: py });
+          applyTraceSample(px, py, true);
+        }
+
+        function handlePointerMove(e) {
+          if (!activePointers.has(e.pointerId)) return;
+          if (state !== "tracing") return;
+          e.preventDefault();
+
+          const rect = canvas.getBoundingClientRect();
+          const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
+          const prev = activePointers.get(e.pointerId);
+          activePointers.set(e.pointerId, { x: px, y: py });
+
+          traceSegment(prev.x, prev.y, px, py, false);
+        }
+
+        function handlePointerUp(e) {
+          activePointers.delete(e.pointerId);
+        }
+
+        function togglePause() {
+          if (state === "tracing" || state === "celebrate") {
+            stateBeforePause = state;
+            state = "paused";
+            cancelSpeech();
+            syncHudButtons();
+          } else if (state === "paused") {
+            state = stateBeforePause;
+            syncHudButtons();
+          }
+        }
+
+        function toggleMute() {
+          muted = !muted;
+          if (muted) cancelSpeech();
+          syncHudButtons();
+        }
+
+        function handleKeyDown(e) {
+          // Allow focused native toolbar buttons to handle Enter/Space natively
+          const onNativeBtn = document.activeElement && document.activeElement.tagName === "BUTTON";
+
+          if (
+            ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) ||
+            (!onNativeBtn && (e.code === "Space" || e.key === " "))
+          ) {
+            e.preventDefault();
+          }
+
+          ensureAudio();
+
+          const key = e.key.toLowerCase();
+          if (key === "m") {
+            toggleMute();
+            return;
+          }
+
+          if (key === "p" || key === "escape") {
+            togglePause();
+            return;
+          }
+
+          if (onNativeBtn) return;
+
+          if (e.code === "Space" || e.key === "Enter") {
+            if (state === "title") {
+              startGame();
+            } else if (state === "paused") {
+              state = stateBeforePause;
+              syncHudButtons();
+            } else if (state === "celebrate" && celebrateTime >= 0.7) {
+              loadShape(shapeIndex + 1);
+              playStartSound();
+            } else if (state === "tracing") {
+              // Keyboard assist: nudge tracing forward so keyboard-only users can also play
+              const shape = SHAPES[shapeIndex];
+              const lastIdx = shape.points.length - 1;
+              progressIndex = Math.min(lastIdx, progressIndex + 4);
+              idleTime = 0;
+              const metrics = getShapeMetrics("tracing");
+              const pt = toScreen(shape.points[progressIndex], metrics);
+              spawnTraceSparkle(pt.x, pt.y, shape);
+              playTraceChime(progressIndex / lastIdx);
+              if (progressIndex >= lastIdx) {
+                completeShape();
+              }
+            }
+          } else if (e.key === "ArrowRight" && (state === "tracing" || state === "celebrate")) {
+            loadShape(shapeIndex + 1);
+            playStartSound();
+          } else if (e.key === "ArrowLeft" && (state === "tracing" || state === "celebrate")) {
+            loadShape(shapeIndex - 1);
+            playStartSound();
+          }
+        }
+
+        function pauseIfActive() {
+          if (state === "tracing" || state === "celebrate") {
+            stateBeforePause = state;
+            state = "paused";
+            cancelSpeech();
+            activePointers.clear();
+            syncHudButtons();
+          }
+        }
+
+        // Toolbar button listeners
+        btnMute.addEventListener("click", () => {
+          ensureAudio();
+          toggleMute();
+        });
+
+        btnPause.addEventListener("click", () => {
+          ensureAudio();
+          togglePause();
+        });
+
+        btnSkip.addEventListener("click", () => {
+          ensureAudio();
+          if (state === "tracing" || state === "celebrate") {
+            loadShape(shapeIndex + 1);
+            playStartSound();
+          }
+        });
+
+        // -------------------------------------------------------------------
+        // Update Loop
+        // -------------------------------------------------------------------
+        function update(dt) {
+          elapsed += dt;
+
+          // Update particles
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vy += 170 * dt;
+            p.life -= dt;
+            if (p.life <= 0) particles.splice(i, 1);
+          }
+
+          // Update expanding celebration rings
+          for (let i = rings.length - 1; i >= 0; i--) {
+            const rg = rings[i];
+            rg.r += (rg.maxR - rg.r) * Math.min(1, dt * 7);
+            rg.alpha -= dt * 1.6;
+            if (rg.alpha <= 0) rings.splice(i, 1);
+          }
+
+          // Update floating texts
+          for (let i = floatTexts.length - 1; i >= 0; i--) {
+            const ft = floatTexts[i];
+            ft.y -= 42 * dt;
+            ft.life -= dt;
+            if (ft.life <= 0) floatTexts.splice(i, 1);
+          }
+
+          if (state === "title") {
+            const speed = reducedMotion ? 0.12 : 0.34;
+            demoProgress += dt * speed;
+            if (demoProgress >= 1.25) {
+              demoProgress = 0;
+              demoShapeIdx = (demoShapeIdx + 1) % SHAPES.length;
+            }
+            return;
+          }
+
+          if (state === "tracing") {
+            idleTime += dt;
+            return;
+          }
+
+          if (state === "celebrate") {
+            celebrateTime += dt;
+            if (celebrateBounce > 0) {
+              celebrateBounce = Math.max(0, celebrateBounce - dt * 2.6);
+            }
+          }
+        }
+
+        // -------------------------------------------------------------------
+        // Drawing Helpers
+        // -------------------------------------------------------------------
+        function drawBackground() {
+          const grad = ctx.createLinearGradient(0, 0, 0, H);
+          grad.addColorStop(0, "#120b2e");
+          grad.addColorStop(0.55, "#1d1b52");
+          grad.addColorStop(1, "#123466");
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, W, H);
+
+          // Twinkling retro arcade stars
+          for (const s of stars) {
+            const twinkle = reducedMotion ? 0.55 : 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(elapsed * s.speed + s.phase));
+            ctx.fillStyle = `rgba(255, 255, 255, ${twinkle.toFixed(2)})`;
+            ctx.fillRect(Math.floor(s.x * W), Math.floor(s.y * H), Math.ceil(s.r), Math.ceil(s.r));
+          }
+
+          // Subtle CRT scanlines
+          ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
+          for (let y = 0; y < H; y += 4) {
+            ctx.fillRect(0, y, W, 1);
+          }
+        }
+
+        function drawStarIcon(x, y, size, color, strokeColor) {
+          ctx.save();
+          ctx.beginPath();
+          for (let i = 0; i < 5; i++) {
+            const a1 = (i * 2 * Math.PI) / 5 - Math.PI / 2;
+            const a2 = a1 + Math.PI / 5;
+            const rx = x + Math.cos(a1) * size;
+            const ry = y + Math.sin(a1) * size;
+            const ix = x + Math.cos(a2) * (size * 0.46);
+            const iy = y + Math.sin(a2) * (size * 0.46);
+            if (i === 0) ctx.moveTo(rx, ry);
+            else ctx.lineTo(rx, ry);
+            ctx.lineTo(ix, iy);
+          }
+          ctx.closePath();
+          ctx.fillStyle = color;
+          ctx.fill();
+          if (strokeColor) {
+            ctx.lineWidth = Math.max(1.5, size * 0.14);
+            ctx.strokeStyle = strokeColor;
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        function drawRoundedBox(x, y, w, h, r, fill, stroke, lineWidth = 3) {
+          const rad = Math.min(r, w / 2, h / 2);
+          ctx.beginPath();
+          ctx.moveTo(x + rad, y);
+          ctx.lineTo(x + w - rad, y);
+          ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+          ctx.lineTo(x + w, y + h - rad);
+          ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+          ctx.lineTo(x + rad, y + h);
+          ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
+          ctx.lineTo(x, y + rad);
+          ctx.quadraticCurveTo(x, y, x + rad, y);
+          ctx.closePath();
+          if (fill) {
+            ctx.fillStyle = fill;
+            ctx.fill();
+          }
+          if (stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = lineWidth;
+            ctx.stroke();
+          }
+        }
+
+        function traceShapePath(pts, metrics, maxIdx = pts.length - 1, close = false) {
+          ctx.beginPath();
+          for (let i = 0; i <= maxIdx; i++) {
+            const p = toScreen(pts[i], metrics);
+            if (i === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+          }
+          if (close) ctx.closePath();
+        }
+
+        function drawCuteFace(cx, cy, scale, shape) {
+          const s = scale * shape.faceScale;
+          const fy = cy + shape.faceY * scale;
+          const eyeOffsetX = s * 0.25;
+          const eyeY = fy - s * 0.08;
+          const eyeR = Math.max(4, s * 0.095);
+
+          // Occasional happy blink
+          const blinkCycle = elapsed % 3.8;
+          const isBlinking = !reducedMotion && blinkCycle > 3.64;
+
+          ctx.save();
+          // Rosy cheeks
+          ctx.fillStyle = "rgba(255, 92, 168, 0.42)";
+          ctx.beginPath();
+          ctx.ellipse(cx - s * 0.38, fy + s * 0.1, s * 0.12, s * 0.075, 0, 0, Math.PI * 2);
+          ctx.ellipse(cx + s * 0.38, fy + s * 0.1, s * 0.12, s * 0.075, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Eyes
+          if (isBlinking) {
+            ctx.strokeStyle = "#1a1033";
+            ctx.lineWidth = Math.max(3, s * 0.06);
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            ctx.arc(cx - eyeOffsetX, eyeY, eyeR * 0.85, 0.15 * Math.PI, 0.85 * Math.PI);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(cx + eyeOffsetX, eyeY, eyeR * 0.85, 0.15 * Math.PI, 0.85 * Math.PI);
+            ctx.stroke();
+          } else {
+            ctx.fillStyle = "#1a1033";
+            ctx.beginPath();
+            ctx.arc(cx - eyeOffsetX, eyeY, eyeR, 0, Math.PI * 2);
+            ctx.arc(cx + eyeOffsetX, eyeY, eyeR, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Eye sparkles
+            ctx.fillStyle = "#ffffff";
+            const shineR = Math.max(1.5, eyeR * 0.36);
+            ctx.beginPath();
+            ctx.arc(cx - eyeOffsetX - eyeR * 0.28, eyeY - eyeR * 0.28, shineR, 0, Math.PI * 2);
+            ctx.arc(cx + eyeOffsetX - eyeR * 0.28, eyeY - eyeR * 0.28, shineR, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // Cheerful smile
+          ctx.strokeStyle = "#1a1033";
+          ctx.lineWidth = Math.max(3, s * 0.068);
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.arc(cx, fy + s * 0.04, s * 0.22, 0.15 * Math.PI, 0.85 * Math.PI);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        function drawTracingStage() {
+          const shape = SHAPES[shapeIndex];
+          const pts = shape.points;
+          const lastIdx = pts.length - 1;
+          const metrics = getShapeMetrics("tracing");
+          const trackW = Math.max(18, Math.min(38, metrics.scale * 0.21));
+
+          ctx.save();
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+
+          // 1. Soft ghost interior hint so toddlers see the silhouette
+          traceShapePath(pts, metrics, lastIdx, true);
+          ctx.fillStyle = shape.fill + "18";
+          ctx.fill();
+
+          // 2. Recessed retro arcade groove track
+          traceShapePath(pts, metrics, lastIdx, true);
+          ctx.strokeStyle = "rgba(8, 5, 24, 0.72)";
+          ctx.lineWidth = trackW + 10;
+          ctx.stroke();
+
+          traceShapePath(pts, metrics, lastIdx, true);
+          ctx.strokeStyle = shape.fill + "40";
+          ctx.lineWidth = trackW;
+          ctx.stroke();
+
+          // Dashed center rail
+          ctx.save();
+          ctx.setLineDash([Math.max(8, trackW * 0.45), Math.max(10, trackW * 0.55)]);
+          traceShapePath(pts, metrics, lastIdx, true);
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+          ctx.lineWidth = Math.max(3, trackW * 0.14);
+          ctx.stroke();
+          ctx.restore();
+
+          // 3. Glowing guide beads along remaining untraceable waypoints
+          const step = shape.guideStep || 3;
+          const beadR = Math.max(5.5, trackW * 0.28);
+          for (let i = progressIndex; i < lastIdx; i += step) {
+            const p = toScreen(pts[i], metrics);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, beadR, 0, Math.PI * 2);
+            ctx.fillStyle = shape.glow + "cc";
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = "#ffffffaa";
+            ctx.stroke();
+          }
+
+          // 4. Traced neon trail!
+          if (progressIndex > 0) {
+            // Outer neon halo
+            traceShapePath(pts, metrics, Math.min(lastIdx, progressIndex), false);
+            ctx.strokeStyle = shape.fill + "55";
+            ctx.lineWidth = trackW * 1.45;
+            ctx.stroke();
+
+            // Rich colored beam
+            traceShapePath(pts, metrics, Math.min(lastIdx, progressIndex), false);
+            ctx.strokeStyle = shape.fill;
+            ctx.lineWidth = trackW * 0.86;
+            ctx.stroke();
+
+            // Crisp bright inner core
+            traceShapePath(pts, metrics, Math.min(lastIdx, progressIndex), false);
+            ctx.strokeStyle = shape.rim;
+            ctx.lineWidth = Math.max(4, trackW * 0.3);
+            ctx.stroke();
+          }
+
+          // 5. Gentle guiding comet ahead of current spot if toddler pauses > 1.8s
+          if (!reducedMotion && idleTime > 1.8 && progressIndex < lastIdx) {
+            const hintSpan = Math.min(8, lastIdx - progressIndex);
+            const hintPhase = (idleTime * 1.4) % 1;
+            const hintIdx = Math.min(lastIdx, Math.floor(progressIndex + hintPhase * hintSpan));
+            const hp = toScreen(pts[hintIdx], metrics);
+            ctx.save();
+            ctx.globalAlpha = Math.sin(hintPhase * Math.PI) * 0.85;
+            ctx.beginPath();
+            ctx.arc(hp.x, hp.y, beadR * 1.45, 0, Math.PI * 2);
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+            ctx.restore();
+          }
+
+          // 6. Active glowing target buddy (where to place finger next!)
+          const curIdx = Math.min(lastIdx, progressIndex);
+          const curPt = toScreen(pts[curIdx], metrics);
+          const pulse = reducedMotion ? 1 : 1 + 0.14 * Math.sin(elapsed * 6);
+          const beaconR = Math.max(16, trackW * 0.78);
+
+          // Expanding target ring
+          const ringPulse = reducedMotion ? 0.45 : (elapsed * 1.3) % 1;
+          ctx.save();
+          ctx.globalAlpha = (1 - ringPulse) * 0.75;
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 3.5;
+          ctx.beginPath();
+          ctx.arc(curPt.x, curPt.y, beaconR * (1 + ringPulse * 0.9), 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+
+          // Glowing orb behind star
+          const orbGrad = ctx.createRadialGradient(curPt.x, curPt.y, 2, curPt.x, curPt.y, beaconR * 1.35 * pulse);
+          orbGrad.addColorStop(0, "#ffffff");
+          orbGrad.addColorStop(0.55, shape.fill);
+          orbGrad.addColorStop(1, shape.fill + "00");
+          ctx.fillStyle = orbGrad;
+          ctx.beginPath();
+          ctx.arc(curPt.x, curPt.y, beaconR * 1.35 * pulse, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Cheerful star buddy
+          drawStarIcon(curPt.x, curPt.y, beaconR * 0.72 * pulse, "#ffe14d", "#120b2e");
+
+          // 7. Gentle bottom prompt (shows simple cue while tracing)
+          if (W >= 260 && H >= 260) {
+            const promptSize = Math.max(14, Math.min(24, Math.min(W, H) * 0.044));
+            ctx.font = `900 ${promptSize}px "Courier New", Courier, monospace`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            const msg = progressIndex === 0 ? "TRACE THE STAR!" : "KEEP GOING!";
+            const py = H - Math.max(24, H * 0.055);
+            ctx.fillStyle = "#120b2e";
+            ctx.fillText(msg, W / 2 + 2, py + 2);
+            ctx.fillStyle = "#99eeff";
+            ctx.fillText(msg, W / 2, py);
+          }
+
+          ctx.restore();
+        }
+
+        function drawCelebrationStage() {
+          const shape = SHAPES[shapeIndex];
+          const pts = shape.points;
+          const lastIdx = pts.length - 1;
+          const metrics = getShapeMetrics("celebrate");
+
+          // Elastic pop-in + playful gentle bounce
+          const popT = Math.min(1, celebrateTime / 0.35);
+          const elastic =
+            reducedMotion
+              ? 1
+              : 1 +
+                Math.sin(popT * Math.PI) * 0.14 +
+                Math.sin(celebrateBounce * Math.PI) * 0.16 +
+                Math.sin(elapsed * 3.4) * 0.03;
+
+          const drawMetrics = {
+            cx: metrics.cx,
+            cy: metrics.cy + (reducedMotion ? 0 : Math.sin(elapsed * 3.2) * 5),
+            scale: metrics.scale * elastic,
+          };
+
+          ctx.save();
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+
+          // Radiant halo behind presented shape
+          const halo = ctx.createRadialGradient(
+            drawMetrics.cx,
+            drawMetrics.cy,
+            drawMetrics.scale * 0.2,
+            drawMetrics.cx,
+            drawMetrics.cy,
+            drawMetrics.scale * 1.48
+          );
+          halo.addColorStop(0, shape.fill + "77");
+          halo.addColorStop(0.65, shape.fill + "26");
+          halo.addColorStop(1, shape.fill + "00");
+          ctx.fillStyle = halo;
+          ctx.beginPath();
+          ctx.arc(drawMetrics.cx, drawMetrics.cy, drawMetrics.scale * 1.48, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Glossy filled shape body
+          traceShapePath(pts, drawMetrics, lastIdx, true);
+          const bodyGrad = ctx.createRadialGradient(
+            drawMetrics.cx - drawMetrics.scale * 0.3,
+            drawMetrics.cy - drawMetrics.scale * 0.35,
+            drawMetrics.scale * 0.1,
+            drawMetrics.cx,
+            drawMetrics.cy,
+            drawMetrics.scale * 1.15
+          );
+          bodyGrad.addColorStop(0, "#ffffffdd");
+          bodyGrad.addColorStop(0.28, shape.glow);
+          bodyGrad.addColorStop(0.82, shape.fill);
+          bodyGrad.addColorStop(1, shape.rim);
+          ctx.fillStyle = bodyGrad;
+          ctx.fill();
+
+          // Crisp retro neon rim
+          ctx.lineWidth = Math.max(5, drawMetrics.scale * 0.065);
+          ctx.strokeStyle = "#ffffff";
+          ctx.stroke();
+
+          // Cute happy smiling face on the presented shape!
+          drawCuteFace(drawMetrics.cx, drawMetrics.cy, drawMetrics.scale, shape);
+
+          // Big bold SHAPE NAME presentation banner
+          const minDim = Math.min(W, H);
+          const nameSize = Math.max(28, Math.min(66, Math.min(W * 0.13, minDim * 0.125)));
+          const bannerY = Math.min(H - Math.max(92, minDim * 0.21), metrics.cy + metrics.scale + Math.max(38, nameSize * 0.95));
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${nameSize}px "Courier New", Courier, monospace`;
+
+          // Neon name pill background
+          const textW = ctx.measureText(shape.name).width;
+          const pillW = Math.min(W * 0.9, textW + Math.max(40, nameSize * 0.9));
+          const pillH = nameSize * 1.38;
+          drawRoundedBox(
+            W / 2 - pillW / 2,
+            bannerY - pillH / 2,
+            pillW,
+            pillH,
+            18,
+            "rgba(18, 11, 46, 0.88)",
+            shape.fill,
+            4
+          );
+
+          ctx.fillStyle = "#0a061e";
+          ctx.fillText(shape.name, W / 2 + 3, bannerY + 4);
+          ctx.fillStyle = shape.rim;
+          ctx.fillText(shape.name, W / 2, bannerY + 1);
+
+          // Big friendly NEXT SHAPE button
+          const ready = celebrateTime >= 0.95;
+          const btnW = Math.max(175, Math.min(280, minDim * 0.56));
+          const btnH = Math.max(46, Math.min(64, minDim * 0.12));
+          const btnPulse = ready && !reducedMotion ? 1 + 0.04 * Math.sin(elapsed * 5.2) : 1;
+          const pw = btnW * btnPulse;
+          const ph = btnH * btnPulse;
+          const btnY = Math.min(H - ph / 2 - 14, bannerY + pillH / 2 + ph * 0.72);
+
+          nextBtnRect = { x: W / 2 - pw / 2, y: btnY - ph / 2, w: pw, h: ph };
+          drawRoundedBox(
+            nextBtnRect.x,
+            nextBtnRect.y,
+            nextBtnRect.w,
+            nextBtnRect.h,
+            16,
+            ready ? "#66ff66" : "rgba(102, 255, 102, 0.45)",
+            "#ffffff",
+            3
+          );
+
+          ctx.font = `900 ${Math.max(16, Math.floor(btnH * 0.42))}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("NEXT SHAPE ▶", W / 2, btnY + 1);
+
+          ctx.restore();
+        }
+
+        function drawTitleScreen() {
+          // Animated attract-mode shape tracing cleanly in the background
+          const demoShape = SHAPES[demoShapeIdx];
+          const pts = demoShape.points;
+          const lastIdx = pts.length - 1;
+          const metrics = getShapeMetrics("tracing");
+          const trackW = Math.max(10, Math.min(24, metrics.scale * 0.16));
+          const traceFrac = Math.min(1, demoProgress);
+          const demoIdx = Math.floor(traceFrac * lastIdx);
+
+          ctx.save();
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+
+          // Subtle background shape outline
+          traceShapePath(pts, metrics, lastIdx, true);
+          ctx.strokeStyle = demoShape.fill + "33";
+          ctx.lineWidth = trackW;
+          ctx.stroke();
+
+          // Auto-traced neon stroke
+          if (demoIdx > 0) {
+            traceShapePath(pts, metrics, demoIdx, false);
+            ctx.strokeStyle = demoShape.fill + "cc";
+            ctx.lineWidth = trackW * 0.85;
+            ctx.stroke();
+            const headPt = toScreen(pts[demoIdx], metrics);
+            drawStarIcon(headPt.x, headPt.y, Math.max(9, trackW * 0.75), "#ffe14d", "#120b2e");
+          }
+
+          // Title scrim for strong contrast
+          const minDim = Math.min(W, H);
+          const cx = W / 2;
+          const cy = H / 2;
+          const bob = reducedMotion ? 0 : Math.sin(elapsed * 3.0) * 5;
+
+          const titleSize = Math.max(24, Math.min(68, Math.min(W * 0.125, minDim * 0.14)));
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${titleSize}px "Courier New", Courier, monospace`;
+
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("SHAPE TRACER", cx + 4, cy - titleSize * 0.62 + bob + 4);
+          ctx.fillStyle = "#38d9ff";
+          ctx.fillText("SHAPE TRACER", cx, cy - titleSize * 0.62 + bob);
+
+          const subSize = Math.max(11, Math.min(22, minDim * 0.044));
+          ctx.font = `700 ${subSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText("FOLLOW THE GLOWING STAR!", cx, cy - titleSize * 0.02 + bob * 0.45);
+
+          // Big friendly pulsing PLAY button
+          const btnW = Math.max(136, Math.min(265, minDim * 0.56));
+          const btnH = Math.max(44, Math.min(72, minDim * 0.15));
+          const pulse = reducedMotion ? 1 : 1 + 0.045 * Math.sin(elapsed * 5);
+          const pw = btnW * pulse;
+          const ph = btnH * pulse;
+          const btnCy = cy + titleSize * 0.55;
+
+          titlePlayRect = { x: cx - pw / 2, y: btnCy - ph / 2, w: pw, h: ph };
+          drawRoundedBox(titlePlayRect.x, titlePlayRect.y, titlePlayRect.w, titlePlayRect.h, 16, "#66ff66", "#ffffff", 3);
+
+          ctx.font = `900 ${Math.max(18, Math.floor(btnH * 0.46))}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("PLAY!", cx, btnCy + 1);
+
+          if (totalCompleted > 0 && minDim >= 260) {
+            ctx.font = `700 ${Math.max(12, Math.floor(subSize * 0.88))}px "Courier New", Courier, monospace`;
+            ctx.fillStyle = "#ff99cc";
+            ctx.fillText(`SHAPES TRACED: ${totalCompleted}`, cx, btnCy + btnH * 0.88);
+          }
+
+          ctx.restore();
+        }
+
+        function drawScoreHUD() {
+          if (state !== "tracing" && state !== "celebrate" && state !== "paused") return;
+          const minDim = Math.min(W, H);
+          const pad = Math.max(12, minDim * 0.028);
+          const hudFont = Math.max(15, Math.min(26, minDim * 0.052));
+
+          ctx.save();
+          ctx.font = `900 ${hudFont}px "Courier New", Courier, monospace`;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "top";
+
+          const label = `★ ${sessionCount}`;
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText(label, pad + 2, pad + 2);
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText(label, pad, pad);
+
+          const subFont = Math.max(11, Math.floor(hudFont * 0.56));
+          ctx.font = `700 ${subFont}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#99eeff";
+          ctx.fillText(`${shapeIndex + 1} / ${SHAPES.length}`, pad, pad + hudFont + 4);
+          ctx.restore();
+        }
+
+        function drawPausedOverlay() {
+          const minDim = Math.min(W, H);
+          ctx.save();
+          ctx.fillStyle = "rgba(10, 6, 28, 0.72)";
+          ctx.fillRect(0, 0, W, H);
+
+          const titleSize = Math.max(26, Math.min(58, minDim * 0.12));
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${titleSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText("PAUSED", W / 2, H / 2 - titleSize * 0.42);
+
+          const subSize = Math.max(14, Math.min(22, minDim * 0.045));
+          ctx.font = `700 ${subSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText("TAP OR PRESS SPACE", W / 2, H / 2 + titleSize * 0.42);
+          ctx.restore();
+        }
+
+        function drawEffects() {
+          for (const rg of rings) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, rg.alpha);
+            ctx.strokeStyle = rg.color;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(rg.x, rg.y, rg.r, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          for (const p of particles) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+            if (p.star) {
+              drawStarIcon(p.x, p.y, p.size, p.color);
+            } else {
+              ctx.fillStyle = p.color;
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, p.size * 0.6, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.restore();
+          }
+        }
+
+        function render() {
+          drawBackground();
+
+          if (state === "title") {
+            drawTitleScreen();
+          } else if (state === "tracing") {
+            drawTracingStage();
+          } else if (state === "celebrate") {
+            drawCelebrationStage();
+          } else if (state === "paused") {
+            if (stateBeforePause === "celebrate") {
+              drawCelebrationStage();
+            } else {
+              drawTracingStage();
+            }
+          }
+
+          drawEffects();
+          drawScoreHUD();
+
+          if (state === "paused") {
+            drawPausedOverlay();
+          }
+        }
+
+        let lastTime = performance.now();
+        function loop(now) {
+          const dt = Math.min((now - lastTime) / 1000, 0.05);
+          lastTime = now;
+          update(dt);
+          render();
+          requestAnimationFrame(loop);
+        }
+
+        // Event wiring
+        window.addEventListener("resize", resize);
+        if (typeof ResizeObserver === "function") {
+          new ResizeObserver(resize).observe(canvas);
+        }
+        window.addEventListener("blur", pauseIfActive);
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) pauseIfActive();
+        });
+        window.addEventListener("keydown", handleKeyDown, { passive: false });
+
+        canvas.addEventListener("pointerdown", handlePointerDown, { passive: false });
+        canvas.addEventListener("pointermove", handlePointerMove, { passive: false });
+        window.addEventListener("pointerup", handlePointerUp);
+        window.addEventListener("pointercancel", handlePointerUp);
+
+        // Boot
+        initStars();
+        resize();
+        syncHudButtons();
+        requestAnimationFrame(loop);
+      })();
+    </script>
+  </body>
+</html>
