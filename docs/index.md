@@ -58,7 +58,7 @@ Exact filenames and display aliases (note non-English filenames and renamed clas
 | `game:motordiefstal` | `games/motordiefstal-op-groot-skaal.html` | Motordiefstal op Groot Skaal | GTA, top-down crime sandbox | Action | 1997 | `#ff2e93` |
 | `game:neon-drift` | `games/neon-drift.html` | Neon Drift | OutRun, synthwave highway racer | Racing | 1986 | `#ff2a85` |
 | `game:slang` | `games/slang.html` | Slang | Snake, neon serpent | Arcade | 1976 | `#39ff14` |
-| `game:snack-man` | `games/snack-man.html` | Pac-Man | Pac-Man, maze, ghosts | Arcade | 1980 | `#ffd60a` |
+| `game:snack-man` | `games/snack-man.html` | Snack-Man | Maze chomper, pellets, ghosts | Arcade | 1980 | `#ffd60a` |
 
 ### Junior Arcade (`dir:junior-games` -> `junior-games/`)
 
@@ -67,6 +67,7 @@ Exact filenames and display aliases (note non-English filenames and renamed clas
 | `junior:bubble-pop` | `junior-games/bubble-pop.html` | Bubble Pop | Toddlers & kids, touch/click popping | Arcade | 2026 | `#ff6ec7` |
 | `junior:shape-tracer` | `junior-games/shape-tracer.html` | Shape Tracer | Toddlers & kids, shape tracing & spoken naming | Puzzle | 2026 | `#38d9ff` |
 | `junior:letter-tracer` | `junior-games/letter-tracer.html` | Letter Tracer | Toddlers & kids, A–Z letter tracing & phonics sounds | Puzzle | 2026 | `#ff9f43` |
+| `junior:animal-sorter` | `junior-games/animal-sorter.html` | Animal Sorter | Toddlers & kids, touch drag animals to pictorial habitats | Puzzle | 2026 | `#39e58c` |
 
 ---
 

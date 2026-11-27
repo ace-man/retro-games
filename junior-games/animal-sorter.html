@@ -1,0 +1,3105 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Animal Sorter</title>
+    <meta
+      name="description"
+      content="Toddler-friendly touch animal sorting game: drag cute animals into illustrated habitats to hear their names and sounds."
+    />
+    <meta name="game:genre" content="Puzzle" />
+    <meta name="game:tags" content="toddler, kids, animals, sorting, touch" />
+    <meta name="game:added" content="2026-11-28" />
+    <meta name="game:year" content="2026" />
+    <meta
+      name="game:controls"
+      content="Tap and drag animals into their matching habitat picture, tap an animal to hear its name, Space or Enter to start or continue, P to pause, M to mute"
+    />
+    <meta name="game:author" content="Arcade Bot" />
+    <meta name="game:color" content="#39e58c" />
+    <style>
+      :root {
+        --target-size: 38px;
+        --hud-bg: rgba(16, 26, 48, 0.8);
+        --hud-border: #39e58c;
+        --hud-text: #ffffff;
+        --focus-ring: #ffe14d;
+      }
+
+      @media (pointer: coarse) {
+        :root {
+          --target-size: 46px;
+        }
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        font-family: "Courier New", Courier, monospace;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      main.stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        container: stage / inline-size;
+      }
+
+      #game {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        cursor: grab;
+      }
+
+      #game.dragging {
+        cursor: grabbing;
+      }
+
+      .hud-bar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding-top: max(10px, env(safe-area-inset-top, 0px));
+        padding-right: max(10px, env(safe-area-inset-right, 0px));
+        padding-left: max(10px, env(safe-area-inset-left, 0px));
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      .hud-btn {
+        pointer-events: auto;
+        min-inline-size: var(--target-size);
+        min-block-size: var(--target-size);
+        padding: 4px 10px;
+        border-radius: 12px;
+        border: 2.5px solid var(--hud-border);
+        background: var(--hud-bg);
+        color: var(--hud-text);
+        font: 900 18px/1 "Courier New", Courier, monospace;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        -webkit-user-select: none;
+        user-select: none;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+        transition: transform 120ms ease, border-color 120ms ease, color 120ms ease;
+      }
+
+      .hud-btn:hover {
+        transform: scale(1.06);
+      }
+
+      .hud-btn:active {
+        transform: scale(0.95);
+      }
+
+      .hud-btn:focus-visible {
+        outline: 3px solid var(--focus-ring);
+        outline-offset: 3px;
+      }
+
+      .hud-btn[aria-pressed="true"] {
+        border-color: #ff6b9d;
+        color: #ff6b9d;
+      }
+
+      .hud-btn--pause {
+        border-color: #ffe14d;
+        color: #ffe14d;
+      }
+
+      .hud-btn--next {
+        border-color: #38d9ff;
+        color: #38d9ff;
+      }
+
+      .hud-btn[hidden] {
+        display: none;
+      }
+
+      /* Keep compact square gallery previews clean and uncluttered */
+      @container stage (inline-size < 300px) {
+        .hud-bar {
+          display: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hud-btn {
+          transition: none;
+        }
+      }
+
+      .visually-hidden:where(:not(:focus-within, :active)) {
+        position: absolute !important;
+        clip-path: inset(50%) !important;
+        overflow: hidden !important;
+        width: 1px !important;
+        height: 1px !important;
+        margin: -1px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        white-space: nowrap !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="stage">
+      <h1 class="visually-hidden">Animal Sorter</h1>
+      <canvas id="game" aria-label="Animal Sorter toddler touch game"></canvas>
+
+      <div class="hud-bar" role="toolbar" aria-label="Game controls">
+        <button
+          id="btn-next"
+          class="hud-btn hud-btn--next"
+          type="button"
+          aria-label="Next habitat pair"
+          title="Next habitats (N)"
+          hidden
+        >
+          <span aria-hidden="true">⏭</span>
+        </button>
+        <button
+          id="btn-pause"
+          class="hud-btn hud-btn--pause"
+          type="button"
+          aria-label="Pause game"
+          aria-pressed="false"
+          title="Pause (P)"
+          hidden
+        >
+          <span aria-hidden="true">⏸</span>
+        </button>
+        <button
+          id="btn-mute"
+          class="hud-btn"
+          type="button"
+          aria-label="Mute sound"
+          aria-pressed="false"
+          title="Mute (M)"
+        >
+          <span aria-hidden="true">🔊</span>
+        </button>
+      </div>
+
+      <div id="live-status" class="visually-hidden" aria-live="polite"></div>
+    </main>
+
+    <script>
+      (() => {
+        "use strict";
+
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
+        const btnMute = document.getElementById("btn-mute");
+        const btnPause = document.getElementById("btn-pause");
+        const btnNext = document.getElementById("btn-next");
+        const liveStatus = document.getElementById("live-status");
+
+        const STORAGE_SORTED = "animal-sorter:sorted";
+        const STORAGE_ROUNDS = "animal-sorter:rounds";
+
+        const reducedMotionQuery = window.matchMedia
+          ? window.matchMedia("(prefers-reduced-motion: reduce)")
+          : { matches: false };
+        const coarsePointerQuery = window.matchMedia
+          ? window.matchMedia("(pointer: coarse)")
+          : { matches: false };
+
+        let reducedMotion = !!reducedMotionQuery.matches;
+        if (reducedMotionQuery.addEventListener) {
+          reducedMotionQuery.addEventListener("change", (e) => {
+            reducedMotion = e.matches;
+          });
+        }
+
+        // ---- Persistence ----
+        function readCount(key) {
+          try {
+            const raw = window.localStorage.getItem(key);
+            const n = parseInt(raw || "0", 10);
+            return Number.isFinite(n) && n > 0 ? n : 0;
+          } catch (_) {
+            return 0;
+          }
+        }
+
+        function saveCount(key, value) {
+          try {
+            window.localStorage.setItem(key, String(value));
+          } catch (_) {
+            // Ignore storage errors in sandboxed iframes
+          }
+        }
+
+        // ---- Live Region Helper ----
+        let liveTimer = null;
+        function announce(text) {
+          if (!liveStatus) return;
+          liveStatus.textContent = text;
+          if (liveTimer) clearTimeout(liveTimer);
+          liveTimer = setTimeout(() => {
+            liveStatus.textContent = "";
+          }, 1400);
+        }
+
+        // ---- Animal & Habitat Catalog ----
+        // Each habitat is purely pictorial so a 2-year-old never needs to read.
+        const HABITATS = {
+          jungle: {
+            id: "jungle",
+            name: "Jungle",
+            border: "#46e87a",
+            glow: "rgba(70, 232, 122, 0.55)",
+            particleColors: ["#68ff84", "#ffe14d", "#ff8fd8", "#b9ff66"],
+            slots: [
+              { rx: 0.3, ry: 0.67 },
+              { rx: 0.7, ry: 0.65 },
+            ],
+          },
+          ocean: {
+            id: "ocean",
+            name: "Ocean",
+            border: "#38d9ff",
+            glow: "rgba(56, 217, 255, 0.55)",
+            particleColors: ["#aef2ff", "#38d9ff", "#ffffff", "#7ef9ff"],
+            slots: [
+              { rx: 0.3, ry: 0.58 },
+              { rx: 0.7, ry: 0.62 },
+            ],
+          },
+          farm: {
+            id: "farm",
+            name: "Farm",
+            border: "#ffbe44",
+            glow: "rgba(255, 190, 68, 0.55)",
+            particleColors: ["#ffe14d", "#7dff7a", "#ff876b", "#ffffff"],
+            slots: [
+              { rx: 0.3, ry: 0.7 },
+              { rx: 0.72, ry: 0.71 },
+            ],
+          },
+          sky: {
+            id: "sky",
+            name: "Sky",
+            border: "#79d4ff",
+            glow: "rgba(121, 212, 255, 0.6)",
+            particleColors: ["#ffffff", "#ffe866", "#ffb7e2", "#9be7ff"],
+            slots: [
+              { rx: 0.31, ry: 0.54 },
+              { rx: 0.69, ry: 0.49 },
+            ],
+          },
+          pond: {
+            id: "pond",
+            name: "Pond",
+            border: "#36f1cd",
+            glow: "rgba(54, 241, 205, 0.55)",
+            particleColors: ["#9effeb", "#ff9be0", "#76ff7a", "#ffffff"],
+            slots: [
+              { rx: 0.3, ry: 0.63 },
+              { rx: 0.71, ry: 0.66 },
+            ],
+          },
+          snow: {
+            id: "snow",
+            name: "Snow",
+            border: "#b8e4ff",
+            glow: "rgba(184, 228, 255, 0.6)",
+            particleColors: ["#ffffff", "#c8ecff", "#98d8ff", "#e6f7ff"],
+            slots: [
+              { rx: 0.31, ry: 0.68 },
+              { rx: 0.7, ry: 0.66 },
+            ],
+          },
+        };
+
+        const ANIMALS = {
+          lion: { id: "lion", name: "Lion", habitat: "jungle", soundText: "Roar!", badge: "#fff0bf" },
+          monkey: { id: "monkey", name: "Monkey", habitat: "jungle", soundText: "Ooh, ooh, aah, aah!", badge: "#ffe4c4" },
+          whale: { id: "whale", name: "Whale", habitat: "ocean", soundText: "Whoooosh!", badge: "#d4f2ff" },
+          fish: { id: "fish", name: "Fish", habitat: "ocean", soundText: "Blub, blub!", badge: "#d7f8ff" },
+
+          cow: { id: "cow", name: "Cow", habitat: "farm", soundText: "Moooo!", badge: "#fff3d6" },
+          pig: { id: "pig", name: "Pig", habitat: "farm", soundText: "Oink, oink!", badge: "#ffe1ef" },
+          dolphin: { id: "dolphin", name: "Dolphin", habitat: "ocean", soundText: "Eee, eee!", badge: "#d5f4ff" },
+          octopus: { id: "octopus", name: "Octopus", habitat: "ocean", soundText: "Splash, blub!", badge: "#f0ddff" },
+
+          dog: { id: "dog", name: "Dog", habitat: "farm", soundText: "Woof, woof!", badge: "#ffebd0" },
+          sheep: { id: "sheep", name: "Sheep", habitat: "farm", soundText: "Baaaa!", badge: "#eef9d8" },
+          bird: { id: "bird", name: "Bird", habitat: "sky", soundText: "Tweet, tweet!", badge: "#dcf6ff" },
+          bee: { id: "bee", name: "Bee", habitat: "sky", soundText: "Bzzzzz!", badge: "#fff8c7" },
+
+          elephant: { id: "elephant", name: "Elephant", habitat: "jungle", soundText: "Pawoo!", badge: "#e3eeff" },
+          tiger: { id: "tiger", name: "Tiger", habitat: "jungle", soundText: "Grrrr!", badge: "#ffe6c7" },
+          frog: { id: "frog", name: "Frog", habitat: "pond", soundText: "Ribbit, ribbit!", badge: "#d7ffd9" },
+          duck: { id: "duck", name: "Duck", habitat: "pond", soundText: "Quack, quack!", badge: "#fff7c8" },
+
+          penguin: { id: "penguin", name: "Penguin", habitat: "snow", soundText: "Honk, honk!", badge: "#dff4ff" },
+          polarBear: { id: "polarBear", name: "Polar Bear", habitat: "snow", soundText: "Grrr!", badge: "#e8f6ff" },
+          cat: { id: "cat", name: "Cat", habitat: "farm", soundText: "Meeeow!", badge: "#ffe8d6" },
+          chicken: { id: "chicken", name: "Chicken", habitat: "farm", soundText: "Cluck, cluck!", badge: "#fff2cc" },
+        };
+
+        const ROUNDS = [
+          { habitats: ["jungle", "ocean"], animals: ["lion", "fish", "monkey", "whale"] },
+          { habitats: ["farm", "ocean"], animals: ["cow", "dolphin", "pig", "octopus"] },
+          { habitats: ["farm", "sky"], animals: ["dog", "bird", "sheep", "bee"] },
+          { habitats: ["jungle", "pond"], animals: ["elephant", "frog", "tiger", "duck"] },
+          { habitats: ["snow", "farm"], animals: ["penguin", "cat", "polarBear", "chicken"] },
+        ];
+
+        // ---- Audio & Speech Engine (strictly silent until first user gesture) ----
+        let audioCtx = null;
+        let hasUserGesture = false;
+        let muted = false;
+        let preferredVoice = null;
+
+        function unlockAudio() {
+          hasUserGesture = true;
+          if (muted) return;
+          const AudioCtor = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtor) return;
+          if (!audioCtx) {
+            try {
+              audioCtx = new AudioCtor();
+            } catch (_) {
+              audioCtx = null;
+            }
+          }
+          if (audioCtx && audioCtx.state === "suspended") {
+            audioCtx.resume().catch(() => {});
+          }
+        }
+
+        function pickVoice() {
+          if (!window.speechSynthesis || !window.speechSynthesis.getVoices) return null;
+          const voices = window.speechSynthesis.getVoices();
+          if (!voices || !voices.length) return null;
+          const en = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith("en"));
+          const friendly = en.find((v) => /samantha|karen|moira|aria|google us english|daniel|tessa/i.test(v.name));
+          return friendly || en[0] || voices[0];
+        }
+
+        if (window.speechSynthesis && window.speechSynthesis.addEventListener) {
+          window.speechSynthesis.addEventListener("voiceschanged", () => {
+            preferredVoice = pickVoice();
+          });
+        }
+
+        function stopSpeech() {
+          if (!window.speechSynthesis) return;
+          try {
+            window.speechSynthesis.cancel();
+          } catch (_) {
+            // Ignore speech cancellation errors
+          }
+        }
+
+        function speakText(text, opts) {
+          if (!hasUserGesture || muted) return;
+          if (!window.speechSynthesis || typeof window.SpeechSynthesisUtterance !== "function") return;
+          try {
+            stopSpeech();
+            const u = new window.SpeechSynthesisUtterance(text);
+            if (!preferredVoice) preferredVoice = pickVoice();
+            if (preferredVoice) u.voice = preferredVoice;
+            u.lang = (preferredVoice && preferredVoice.lang) || "en-US";
+            u.rate = (opts && opts.rate) || 0.92;
+            u.pitch = (opts && opts.pitch) || 1.12;
+            u.volume = 1;
+            window.speechSynthesis.speak(u);
+          } catch (_) {
+            // Ignore speech synthesis failures
+          }
+        }
+
+        function createNoiseBuffer(ac, duration) {
+          const len = Math.max(1, Math.floor(ac.sampleRate * duration));
+          const buf = ac.createBuffer(1, len, ac.sampleRate);
+          const data = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) {
+            data[i] = Math.random() * 2 - 1;
+          }
+          return buf;
+        }
+
+        function playTone(freqStart, freqEnd, duration, type, volume, delay, filterFreq) {
+          if (!hasUserGesture || muted) return;
+          unlockAudio();
+          if (!audioCtx) return;
+          const now = audioCtx.currentTime + (delay || 0);
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = type || "sine";
+          osc.frequency.setValueAtTime(Math.max(30, freqStart), now);
+          if (freqEnd && freqEnd !== freqStart) {
+            osc.frequency.exponentialRampToValueAtTime(Math.max(30, freqEnd), now + duration);
+          }
+          gain.gain.setValueAtTime(0.0001, now);
+          gain.gain.linearRampToValueAtTime(volume || 0.14, now + Math.min(0.03, duration * 0.25));
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+          if (filterFreq) {
+            const flt = audioCtx.createBiquadFilter();
+            flt.type = "lowpass";
+            flt.frequency.setValueAtTime(filterFreq, now);
+            osc.connect(flt);
+            flt.connect(gain);
+          } else {
+            osc.connect(gain);
+          }
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + duration + 0.02);
+        }
+
+        function playFormantTone(opts) {
+          if (!hasUserGesture || muted) return;
+          unlockAudio();
+          if (!audioCtx) return;
+          const ac = audioCtx;
+          const t0 = ac.currentTime + (opts.delay || 0);
+          const dur = opts.duration || 0.4;
+
+          const osc = ac.createOscillator();
+          osc.type = opts.wave || "sawtooth";
+          osc.frequency.setValueAtTime(opts.f0, t0);
+          if (opts.fMid) {
+            osc.frequency.exponentialRampToValueAtTime(opts.fMid, t0 + dur * 0.45);
+          }
+          if (opts.f1) {
+            osc.frequency.exponentialRampToValueAtTime(opts.f1, t0 + dur);
+          }
+
+          if (opts.vibRate && opts.vibDepth) {
+            const lfo = ac.createOscillator();
+            const lfoGain = ac.createGain();
+            lfo.frequency.setValueAtTime(opts.vibRate, t0);
+            lfoGain.gain.setValueAtTime(opts.vibDepth, t0);
+            lfo.connect(lfoGain);
+            lfoGain.connect(osc.frequency);
+            lfo.start(t0);
+            lfo.stop(t0 + dur + 0.03);
+          }
+
+          const bp = ac.createBiquadFilter();
+          bp.type = opts.filterType || "bandpass";
+          bp.frequency.setValueAtTime(opts.formantStart || 650, t0);
+          if (opts.formantEnd) {
+            bp.frequency.exponentialRampToValueAtTime(opts.formantEnd, t0 + dur);
+          }
+          bp.Q.setValueAtTime(opts.q || 3.2, t0);
+
+          const lp = ac.createBiquadFilter();
+          lp.type = "lowpass";
+          lp.frequency.setValueAtTime(opts.maxFreq || 2200, t0);
+
+          const gain = ac.createGain();
+          const vol = opts.volume || 0.16;
+          gain.gain.setValueAtTime(0.0001, t0);
+          gain.gain.linearRampToValueAtTime(vol, t0 + Math.min(0.05, dur * 0.2));
+          gain.gain.setValueAtTime(vol * 0.85, t0 + dur * 0.7);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+          osc.connect(bp);
+          bp.connect(lp);
+          lp.connect(gain);
+          gain.connect(ac.destination);
+          osc.start(t0);
+          osc.stop(t0 + dur + 0.03);
+        }
+
+        function playFilteredNoise(duration, freqStart, freqEnd, q, volume, delay) {
+          if (!hasUserGesture || muted) return;
+          unlockAudio();
+          if (!audioCtx) return;
+          const ac = audioCtx;
+          const t0 = ac.currentTime + (delay || 0);
+          const src = ac.createBufferSource();
+          src.buffer = createNoiseBuffer(ac, duration + 0.05);
+          const flt = ac.createBiquadFilter();
+          flt.type = "bandpass";
+          flt.frequency.setValueAtTime(freqStart, t0);
+          if (freqEnd) flt.frequency.exponentialRampToValueAtTime(freqEnd, t0 + duration);
+          flt.Q.setValueAtTime(q || 2, t0);
+
+          const gain = ac.createGain();
+          gain.gain.setValueAtTime(0.0001, t0);
+          gain.gain.linearRampToValueAtTime(volume || 0.08, t0 + 0.04);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+
+          src.connect(flt);
+          flt.connect(gain);
+          gain.connect(ac.destination);
+          src.start(t0);
+          src.stop(t0 + duration + 0.03);
+        }
+
+        function playPickupPop() {
+          playTone(390, 620, 0.09, "sine", 0.11, 0);
+        }
+
+        // Gentle, warm, non-harsh buzz for wrong habitat drop
+        function playGentleBuzz() {
+          if (!hasUserGesture || muted) return;
+          unlockAudio();
+          if (!audioCtx) return;
+          const ac = audioCtx;
+          const t0 = ac.currentTime;
+
+          // Two soft mellow low boops with gentle vibrato — friendly "oops, try again!"
+          [0, 0.16].forEach((offset, idx) => {
+            const osc = ac.createOscillator();
+            const sub = ac.createOscillator();
+            const lfo = ac.createOscillator();
+            const lfoGain = ac.createGain();
+            const lp = ac.createBiquadFilter();
+            const gain = ac.createGain();
+
+            const baseFreq = idx === 0 ? 196 : 158;
+            const endFreq = idx === 0 ? 174 : 138;
+            const dur = idx === 0 ? 0.14 : 0.2;
+
+            osc.type = "triangle";
+            sub.type = "sine";
+            osc.frequency.setValueAtTime(baseFreq, t0 + offset);
+            osc.frequency.exponentialRampToValueAtTime(endFreq, t0 + offset + dur);
+            sub.frequency.setValueAtTime(baseFreq * 0.5, t0 + offset);
+            sub.frequency.exponentialRampToValueAtTime(endFreq * 0.5, t0 + offset + dur);
+
+            lfo.frequency.setValueAtTime(16, t0 + offset);
+            lfoGain.gain.setValueAtTime(5, t0 + offset);
+            lfo.connect(lfoGain);
+            lfoGain.connect(osc.frequency);
+
+            lp.type = "lowpass";
+            lp.frequency.setValueAtTime(340, t0 + offset);
+
+            gain.gain.setValueAtTime(0.0001, t0 + offset);
+            gain.gain.linearRampToValueAtTime(0.14, t0 + offset + 0.025);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t0 + offset + dur);
+
+            osc.connect(lp);
+            sub.connect(lp);
+            lp.connect(gain);
+            gain.connect(ac.destination);
+
+            osc.start(t0 + offset);
+            sub.start(t0 + offset);
+            lfo.start(t0 + offset);
+            osc.stop(t0 + offset + dur + 0.02);
+            sub.stop(t0 + offset + dur + 0.02);
+            lfo.stop(t0 + offset + dur + 0.02);
+          });
+        }
+
+        function playHappyChime(delay) {
+          const d = delay || 0;
+          playTone(523.25, 523.25, 0.13, "triangle", 0.1, d);
+          playTone(659.25, 659.25, 0.15, "triangle", 0.1, d + 0.08);
+          playTone(783.99, 783.99, 0.22, "sine", 0.11, d + 0.16);
+        }
+
+        function playRoundFanfare() {
+          const notes = [523.25, 587.33, 659.25, 783.99, 1046.5];
+          notes.forEach((n, i) => {
+            playTone(n, n, i === notes.length - 1 ? 0.42 : 0.16, "triangle", 0.13, i * 0.095);
+          });
+        }
+
+        // Custom synthesized cartoon sound effect for every animal!
+        function playAnimalSound(animalId) {
+          if (!hasUserGesture || muted) return;
+          unlockAudio();
+
+          switch (animalId) {
+            case "lion":
+              playFormantTone({ f0: 155, fMid: 180, f1: 92, duration: 0.58, vibRate: 22, vibDepth: 11, formantStart: 560, formantEnd: 300, q: 2.2, volume: 0.18 });
+              playFilteredNoise(0.5, 420, 210, 1.5, 0.06, 0.04);
+              break;
+            case "monkey":
+              playTone(480, 740, 0.1, "sine", 0.14, 0.0);
+              playTone(520, 820, 0.1, "sine", 0.14, 0.13);
+              playTone(700, 460, 0.12, "triangle", 0.14, 0.26);
+              playTone(760, 500, 0.14, "triangle", 0.14, 0.4);
+              break;
+            case "whale":
+              playTone(230, 340, 0.42, "sine", 0.14, 0.0);
+              playTone(340, 185, 0.45, "sine", 0.13, 0.36);
+              playTone(460, 680, 0.38, "sine", 0.06, 0.02);
+              break;
+            case "fish":
+              [0, 0.11, 0.23, 0.34].forEach((d, i) => {
+                playTone(260 + i * 55, 680 + i * 90, 0.09, "sine", 0.13, d);
+              });
+              break;
+            case "cow":
+              playFormantTone({ f0: 132, fMid: 152, f1: 118, duration: 0.72, formantStart: 360, formantEnd: 520, q: 3.4, volume: 0.2, maxFreq: 1100 });
+              break;
+            case "pig":
+              playFormantTone({ f0: 195, f1: 270, duration: 0.13, formantStart: 620, formantEnd: 920, q: 4, volume: 0.17, delay: 0 });
+              playFormantTone({ f0: 210, f1: 290, duration: 0.15, formantStart: 660, formantEnd: 980, q: 4, volume: 0.17, delay: 0.19 });
+              break;
+            case "dolphin":
+              playTone(920, 1780, 0.16, "sine", 0.11, 0);
+              playTone(1680, 1180, 0.14, "sine", 0.11, 0.15);
+              playTone(1120, 1980, 0.18, "sine", 0.1, 0.29);
+              break;
+            case "octopus":
+              playFilteredNoise(0.24, 900, 420, 1.4, 0.07, 0);
+              playTone(320, 740, 0.1, "sine", 0.12, 0.08);
+              playTone(400, 880, 0.1, "sine", 0.12, 0.2);
+              playTone(480, 960, 0.11, "sine", 0.11, 0.32);
+              break;
+            case "dog":
+              playFormantTone({ f0: 290, f1: 145, duration: 0.15, formantStart: 780, formantEnd: 380, q: 2.5, volume: 0.19, delay: 0 });
+              playFormantTone({ f0: 320, f1: 155, duration: 0.17, formantStart: 840, formantEnd: 400, q: 2.5, volume: 0.19, delay: 0.22 });
+              break;
+            case "sheep":
+              playFormantTone({ f0: 280, fMid: 295, f1: 255, duration: 0.56, vibRate: 11, vibDepth: 16, formantStart: 950, formantEnd: 780, q: 3.2, volume: 0.17 });
+              break;
+            case "bird":
+              playTone(1180, 1920, 0.09, "sine", 0.11, 0.0);
+              playTone(1920, 1420, 0.08, "sine", 0.1, 0.09);
+              playTone(1260, 2120, 0.09, "sine", 0.11, 0.22);
+              playTone(2120, 1540, 0.1, "sine", 0.1, 0.31);
+              break;
+            case "bee":
+              playFormantTone({ f0: 215, fMid: 245, f1: 205, duration: 0.55, vibRate: 14, vibDepth: 8, formantStart: 880, formantEnd: 960, q: 2.4, volume: 0.13, maxFreq: 1600 });
+              break;
+            case "elephant":
+              playFormantTone({ f0: 260, fMid: 580, f1: 420, duration: 0.52, vibRate: 16, vibDepth: 14, formantStart: 700, formantEnd: 1550, q: 3.0, volume: 0.16 });
+              break;
+            case "tiger":
+              playFormantTone({ f0: 140, fMid: 165, f1: 95, duration: 0.52, vibRate: 26, vibDepth: 12, formantStart: 520, formantEnd: 290, q: 2.2, volume: 0.18 });
+              playFilteredNoise(0.42, 460, 220, 1.4, 0.05, 0.05);
+              break;
+            case "frog":
+              playFormantTone({ f0: 145, f1: 420, duration: 0.14, formantStart: 420, formantEnd: 1100, q: 4.2, volume: 0.18, delay: 0 });
+              playFormantTone({ f0: 155, f1: 460, duration: 0.16, formantStart: 460, formantEnd: 1180, q: 4.2, volume: 0.18, delay: 0.22 });
+              break;
+            case "duck":
+              playFormantTone({ f0: 250, f1: 205, duration: 0.15, formantStart: 1250, formantEnd: 820, q: 4.5, volume: 0.18, delay: 0 });
+              playFormantTone({ f0: 260, f1: 210, duration: 0.16, formantStart: 1320, formantEnd: 840, q: 4.5, volume: 0.18, delay: 0.21 });
+              break;
+            case "penguin":
+              playFormantTone({ f0: 360, f1: 480, duration: 0.13, formantStart: 1100, formantEnd: 1450, q: 3.6, volume: 0.15, delay: 0 });
+              playFormantTone({ f0: 390, f1: 510, duration: 0.14, formantStart: 1150, formantEnd: 1500, q: 3.6, volume: 0.15, delay: 0.18 });
+              break;
+            case "polarBear":
+              playFormantTone({ f0: 125, fMid: 140, f1: 92, duration: 0.45, vibRate: 18, vibDepth: 8, formantStart: 420, formantEnd: 260, q: 2.4, volume: 0.17 });
+              break;
+            case "cat":
+              playFormantTone({ f0: 420, fMid: 650, f1: 390, duration: 0.48, formantStart: 900, formantEnd: 1450, q: 3.2, volume: 0.15 });
+              break;
+            case "chicken":
+              [0, 0.14, 0.28].forEach((d, idx) => {
+                playFormantTone({ f0: 380 + idx * 35, f1: 270, duration: 0.09, formantStart: 1150, formantEnd: 760, q: 3.5, volume: 0.16, delay: d });
+              });
+              break;
+            default:
+              playHappyChime(0);
+              break;
+          }
+
+          playHappyChime(0.32);
+
+          // Follow with cheerful spoken animal sound so toddlers hear the playful word too
+          const animal = ANIMALS[animalId];
+          if (animal && animal.soundText) {
+            speakText(animal.soundText, { rate: 0.94, pitch: 1.2 });
+          }
+        }
+
+        // ---- Game State ----
+        let W = 800;
+        let H = 600;
+        let dpr = 1;
+
+        let mode = "title"; // "title" | "play" | "roundComplete" | "paused"
+        let modeBeforePause = "play";
+        let roundIndex = 0;
+        let totalSorted = readCount(STORAGE_SORTED);
+        let roundsCompleted = readCount(STORAGE_ROUNDS);
+
+        let elapsed = 0;
+        let idleTime = 0;
+        let roundCompleteDelay = 0;
+        let roundCompleteTimer = 0;
+
+        let habitatCards = []; // [{ id, def, x, y, w, h, wobbleTimer, celebrateTimer, hoverGlow, settledCount }]
+        let roundAnimals = []; // [{ id, def, homeX, homeY, x, y, r, state, ... }]
+        let activeDrag = null; // { animal, pointerId, pointerType, offsetX, offsetY, startX, startY, moved, lift }
+        let selectedAnimal = null;
+        let speechBubble = null; // { text, x, y, timer, maxTimer, color }
+        let particles = [];
+        let titlePlayBtn = { x: 0, y: 0, w: 220, h: 68 };
+        let nextRoundBtn = { x: 0, y: 0, w: 230, h: 68 };
+        let pauseResumeBtn = { x: 0, y: 0, w: 220, h: 64 };
+
+        function syncHud() {
+          const inGame = mode === "play" || mode === "roundComplete" || mode === "paused";
+          btnPause.hidden = !inGame;
+          btnNext.hidden = !inGame;
+          btnPause.setAttribute("aria-pressed", mode === "paused" ? "true" : "false");
+          btnPause.setAttribute("aria-label", mode === "paused" ? "Resume game" : "Pause game");
+          btnPause.firstElementChild.textContent = mode === "paused" ? "▶" : "⏸";
+
+          btnMute.setAttribute("aria-pressed", muted ? "true" : "false");
+          btnMute.setAttribute("aria-label", muted ? "Unmute sound" : "Mute sound");
+          btnMute.firstElementChild.textContent = muted ? "🔇" : "🔊";
+        }
+
+        // ---- Layout ----
+        function computeLayout() {
+          const compact = W < 300;
+          const isPortrait = W < H * 0.92;
+          const pad = Math.max(10, Math.min(24, Math.min(W, H) * 0.03));
+          const topBar = compact ? pad : Math.max(58, Math.min(72, H * 0.1));
+
+          const habTop = topBar;
+          const habHeightRatio = isPortrait ? 0.47 : 0.56;
+          const habH = Math.max(96, (H - habTop - pad * 2) * habHeightRatio);
+          const habGap = Math.max(10, Math.min(26, W * 0.03));
+          const habW = Math.max(80, (W - pad * 2 - habGap) / 2);
+
+          const trayTop = habTop + habH + pad;
+          const trayH = Math.max(84, H - trayTop - pad);
+          const trayX = pad;
+          const trayW = W - pad * 2;
+
+          // Update habitat card rects
+          const round = ROUNDS[roundIndex % ROUNDS.length];
+          for (let i = 0; i < 2; i++) {
+            const hId = round.habitats[i];
+            const hx = pad + i * (habW + habGap);
+            const hy = habTop;
+            if (!habitatCards[i] || habitatCards[i].id !== hId) {
+              habitatCards[i] = {
+                id: hId,
+                def: HABITATS[hId],
+                x: hx,
+                y: hy,
+                w: habW,
+                h: habH,
+                wobbleTimer: 0,
+                celebrateTimer: 0,
+                hoverGlow: 0,
+                settledCount: 0,
+              };
+            } else {
+              habitatCards[i].x = hx;
+              habitatCards[i].y = hy;
+              habitatCards[i].w = habW;
+              habitatCards[i].h = habH;
+            }
+          }
+
+          // Compute staging positions for the 4 animals
+          const useTwoRows = isPortrait && W < 540;
+          const cols = useTwoRows ? 2 : 4;
+          const rows = useTwoRows ? 2 : 1;
+          const cellW = trayW / cols;
+          const cellH = trayH / rows;
+          const animalR = Math.max(24, Math.min(62, Math.min(cellW * 0.38, cellH * 0.42)));
+
+          roundAnimals.forEach((a, idx) => {
+            const col = idx % cols;
+            const row = Math.floor(idx / cols);
+            a.homeX = trayX + cellW * (col + 0.5);
+            a.homeY = trayTop + cellH * (row + 0.5);
+            a.r = animalR;
+
+            if (a.state === "tray") {
+              a.x = a.homeX;
+              a.y = a.homeY;
+            } else if (a.state === "settled" && a.habitatCardIndex != null) {
+              const card = habitatCards[a.habitatCardIndex];
+              if (card) {
+                const slot = card.def.slots[a.habitatSlotIndex || 0];
+                a.targetX = card.x + card.w * slot.rx;
+                a.targetY = card.y + card.h * slot.ry;
+                a.x = a.targetX;
+                a.y = a.targetY;
+              }
+            } else if (a.state === "dragging") {
+              const clamped = clampToViewport(a.x, a.y, a.r);
+              a.x = clamped.x;
+              a.y = clamped.y;
+            }
+          });
+
+          // Buttons
+          const btnW = Math.min(260, Math.max(150, W * 0.44));
+          const btnH = Math.min(72, Math.max(48, H * 0.11));
+          titlePlayBtn = { x: (W - btnW) / 2, y: H * 0.72, w: btnW, h: btnH };
+          nextRoundBtn = { x: (W - btnW) / 2, y: Math.min(H - btnH - 20, trayTop + (trayH - btnH) / 2), w: btnW, h: btnH };
+          pauseResumeBtn = { x: (W - btnW) / 2, y: H * 0.54, w: btnW, h: Math.min(66, btnH) };
+        }
+
+        function clampToViewport(x, y, r) {
+          const margin = Math.max(16, r * 0.75);
+          return {
+            x: Math.max(margin, Math.min(W - margin, x)),
+            y: Math.max(margin, Math.min(H - margin, y)),
+          };
+        }
+
+        function setupRound(index) {
+          roundIndex = ((index % ROUNDS.length) + ROUNDS.length) % ROUNDS.length;
+          const round = ROUNDS[roundIndex];
+          habitatCards = round.habitats.map((hId) => ({
+            id: hId,
+            def: HABITATS[hId],
+            x: 0,
+            y: 0,
+            w: 100,
+            h: 100,
+            wobbleTimer: 0,
+            celebrateTimer: 0,
+            hoverGlow: 0,
+            settledCount: 0,
+          }));
+
+          // Alternate order mildly per round while staying deterministic & clear
+          const order = round.animals.slice();
+          roundAnimals = order.map((animalId, i) => ({
+            id: animalId,
+            def: ANIMALS[animalId],
+            homeX: 0,
+            homeY: 0,
+            x: 0,
+            y: 0,
+            r: 44,
+            state: "tray", // "tray" | "dragging" | "returning" | "flying" | "settled"
+            animT: 0,
+            animDur: 0.4,
+            fromX: 0,
+            fromY: 0,
+            targetX: 0,
+            targetY: 0,
+            targetCardIndex: null,
+            habitatCardIndex: null,
+            habitatSlotIndex: 0,
+            bounceTimer: 0,
+            phase: i * 1.45,
+          }));
+
+          activeDrag = null;
+          selectedAnimal = null;
+          speechBubble = null;
+          roundCompleteDelay = 0;
+          roundCompleteTimer = 0;
+          idleTime = 0;
+          canvas.classList.remove("dragging");
+          computeLayout();
+        }
+
+        function resize() {
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          W = Math.max(1, window.innerWidth);
+          H = Math.max(1, window.innerHeight);
+          canvas.width = Math.round(W * dpr);
+          canvas.height = Math.round(H * dpr);
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          computeLayout();
+        }
+
+        // ---- Particles & Feedback ----
+        function spawnBurst(x, y, colors, count, speedScale) {
+          const total = reducedMotion ? Math.min(8, count) : count;
+          for (let i = 0; i < total; i++) {
+            const angle = (Math.PI * 2 * i) / total + (Math.random() - 0.5) * 0.4;
+            const speed = (65 + Math.random() * 155) * (speedScale || 1);
+            particles.push({
+              x,
+              y,
+              vx: Math.cos(angle) * speed,
+              vy: Math.sin(angle) * speed - 40,
+              size: 5 + Math.random() * 7,
+              color: colors[i % colors.length],
+              life: 0.65 + Math.random() * 0.55,
+              maxLife: 1.2,
+              shape: i % 3 === 0 ? "star" : "circle",
+              rot: Math.random() * Math.PI * 2,
+              vrot: (Math.random() - 0.5) * 6,
+            });
+          }
+        }
+
+        function showSpeechBubble(text, x, y, color) {
+          const clampedX = Math.max(78, Math.min(W - 78, x));
+          const clampedY = Math.max(54, Math.min(H - 42, y));
+          speechBubble = {
+            text,
+            x: clampedX,
+            y: clampedY,
+            timer: 1.5,
+            maxTimer: 1.5,
+            color: color || "#ffe14d",
+          };
+        }
+
+        // ---- Hit Testing & Drop Resolution ----
+        function findHabitatAt(x, y) {
+          for (let i = 0; i < habitatCards.length; i++) {
+            const c = habitatCards[i];
+            if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) {
+              return i;
+            }
+          }
+          return -1;
+        }
+
+        function findAnimalAt(x, y) {
+          // Prefer unsorted animals on top first
+          let best = null;
+          let bestDist = Infinity;
+          for (let i = roundAnimals.length - 1; i >= 0; i--) {
+            const a = roundAnimals[i];
+            if (a.state === "returning" || a.state === "flying") continue;
+            const hitR = a.state === "settled" ? a.r * 0.92 : a.r * 1.28;
+            const dx = x - a.x;
+            const dy = y - a.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist <= hitR && dist < bestDist) {
+              bestDist = dist;
+              best = a;
+            }
+          }
+          return best;
+        }
+
+        function hitRect(x, y, rect) {
+          return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+        }
+
+        function sendAnimalHome(animal) {
+          animal.state = "returning";
+          animal.fromX = animal.x;
+          animal.fromY = animal.y;
+          animal.animT = 0;
+          animal.animDur = reducedMotion ? 0.16 : 0.42;
+        }
+
+        function resolveDropOnHabitat(animal, cardIndex) {
+          const card = habitatCards[cardIndex];
+          if (!card) {
+            sendAnimalHome(animal);
+            return;
+          }
+
+          if (animal.def.habitat === card.id) {
+            // Correct habitat!
+            const slotIndex = Math.min(card.def.slots.length - 1, card.settledCount);
+            card.settledCount += 1;
+            card.celebrateTimer = 0.85;
+
+            const slot = card.def.slots[slotIndex];
+            animal.state = "settled";
+            animal.habitatCardIndex = cardIndex;
+            animal.habitatSlotIndex = slotIndex;
+            animal.fromX = animal.x;
+            animal.fromY = animal.y;
+            animal.targetX = card.x + card.w * slot.rx;
+            animal.targetY = card.y + card.h * slot.ry;
+            animal.animT = 0;
+            animal.animDur = reducedMotion ? 0.1 : 0.28;
+            animal.bounceTimer = 0.7;
+
+            if (selectedAnimal === animal) selectedAnimal = null;
+
+            totalSorted += 1;
+            saveCount(STORAGE_SORTED, totalSorted);
+
+            playAnimalSound(animal.id);
+            spawnBurst(animal.targetX, animal.targetY, card.def.particleColors, 20, 1.0);
+            showSpeechBubble(animal.def.soundText, animal.targetX, Math.max(card.y + 38, animal.targetY - animal.r * 1.1), card.def.border);
+            announce(`${animal.def.name} sorted into ${card.def.name}. ${animal.def.soundText}`);
+
+            // Check if all animals in the round are now sorted
+            const allDone = roundAnimals.every((a) => a.state === "settled");
+            if (allDone) {
+              roundCompleteDelay = 0.95;
+            }
+          } else {
+            // Wrong habitat: gentle non-harsh buzz + move back to be sorted again
+            card.wobbleTimer = 0.46;
+            playGentleBuzz();
+            sendAnimalHome(animal);
+            selectedAnimal = null;
+            announce(`${animal.def.name} returned to try again.`);
+          }
+        }
+
+        // ---- Pointer Handling (Touch-First Drag + Tap Fallback) ----
+        function getCanvasPoint(e) {
+          const rect = canvas.getBoundingClientRect();
+          return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+          };
+        }
+
+        function cancelActiveDrag() {
+          if (!activeDrag) return;
+          const a = activeDrag.animal;
+          activeDrag = null;
+          canvas.classList.remove("dragging");
+          if (a && a.state === "dragging") {
+            sendAnimalHome(a);
+          }
+        }
+
+        canvas.addEventListener("pointerdown", (e) => {
+          // Primary button / primary touch only
+          if (e.button !== 0 || e.isPrimary === false) return;
+          unlockAudio();
+          idleTime = 0;
+
+          const pt = getCanvasPoint(e);
+
+          if (mode === "title") {
+            mode = "play";
+            setupRound(0);
+            playHappyChime(0);
+            syncHud();
+            announce("Animal Sorter started. Drag each animal into its home.");
+            return;
+          }
+
+          if (mode === "paused") {
+            mode = modeBeforePause;
+            syncHud();
+            playPickupPop();
+            announce("Game resumed.");
+            return;
+          }
+
+          if (mode === "roundComplete") {
+            if (roundCompleteTimer >= 0.55 || hitRect(pt.x, pt.y, nextRoundBtn)) {
+              mode = "play";
+              setupRound(roundIndex + 1);
+              playHappyChime(0);
+              syncHud();
+              announce("Next habitats ready.");
+            }
+            return;
+          }
+
+          if (mode !== "play") return;
+          // Ignore second finger if already dragging an animal
+          if (activeDrag) return;
+
+          const animal = findAnimalAt(pt.x, pt.y);
+          if (animal) {
+            if (animal.state === "settled") {
+              // Tapping a happily settled animal replays its sound & gives a happy bounce!
+              animal.bounceTimer = 0.55;
+              playAnimalSound(animal.id);
+              showSpeechBubble(animal.def.soundText, animal.x, animal.y - animal.r * 1.15, "#ffe14d");
+              return;
+            }
+
+            // Select and name the animal!
+            selectedAnimal = animal;
+            animal.state = "dragging";
+            animal.bounceTimer = 0.25;
+            playPickupPop();
+            speakText(animal.def.name, { rate: 0.9, pitch: 1.12 });
+            showSpeechBubble(animal.def.name, animal.x, animal.y - animal.r * 1.25, "#ffffff");
+            announce(`Selected ${animal.def.name}`);
+
+            const isTouch = e.pointerType === "touch" || coarsePointerQuery.matches;
+            activeDrag = {
+              animal,
+              pointerId: e.pointerId,
+              pointerType: e.pointerType || "mouse",
+              offsetX: pt.x - animal.x,
+              offsetY: pt.y - animal.y,
+              startX: pt.x,
+              startY: pt.y,
+              moved: false,
+              touchLiftTarget: isTouch ? Math.min(34, animal.r * 0.65) : 0,
+              touchLift: 0,
+            };
+
+            canvas.classList.add("dragging");
+            if (canvas.setPointerCapture) {
+              try {
+                canvas.setPointerCapture(e.pointerId);
+              } catch (_) {
+                // Ignore synthetic pointer events without capture
+              }
+            }
+            return;
+          }
+
+          // Single-pointer accessibility & toddler tap fallback:
+          // If an animal is already selected, tapping a habitat sends it there smoothly!
+          if (selectedAnimal && selectedAnimal.state === "tray") {
+            const habIdx = findHabitatAt(pt.x, pt.y);
+            if (habIdx !== -1) {
+              const card = habitatCards[habIdx];
+              const a = selectedAnimal;
+              a.state = "flying";
+              a.fromX = a.x;
+              a.fromY = a.y;
+              a.targetX = card.x + card.w * 0.5;
+              a.targetY = card.y + card.h * 0.58;
+              a.targetCardIndex = habIdx;
+              a.animT = 0;
+              a.animDur = reducedMotion ? 0.12 : 0.28;
+              playPickupPop();
+            }
+          }
+        });
+
+        canvas.addEventListener("pointermove", (e) => {
+          if (!activeDrag || e.pointerId !== activeDrag.pointerId) return;
+          idleTime = 0;
+
+          const pt = getCanvasPoint(e);
+          if (!activeDrag.moved && Math.hypot(pt.x - activeDrag.startX, pt.y - activeDrag.startY) >= 4) {
+            activeDrag.moved = true;
+          }
+
+          const a = activeDrag.animal;
+          const rawX = pt.x - activeDrag.offsetX;
+          const rawY = pt.y - activeDrag.offsetY - activeDrag.touchLift;
+          const clamped = clampToViewport(rawX, rawY, a.r);
+          a.x = clamped.x;
+          a.y = clamped.y;
+        });
+
+        function finishDrag(e) {
+          if (!activeDrag || e.pointerId !== activeDrag.pointerId) return;
+          const drag = activeDrag;
+          const a = drag.animal;
+          activeDrag = null;
+          canvas.classList.remove("dragging");
+
+          if (canvas.hasPointerCapture && canvas.hasPointerCapture(e.pointerId)) {
+            try {
+              canvas.releasePointerCapture(e.pointerId);
+            } catch (_) {
+              // Ignore
+            }
+          }
+
+          // Check which habitat the animal was dropped into
+          const habIdx = findHabitatAt(a.x, a.y);
+          if (habIdx !== -1) {
+            resolveDropOnHabitat(a, habIdx);
+          } else {
+            // Dropped outside a habitat (or simple tap to hear name): smoothly return to slot
+            sendAnimalHome(a);
+            // Keep selectedAnimal if it was a gentle tap so tapping a habitat next works too
+            if (drag.moved) {
+              selectedAnimal = null;
+            }
+          }
+        }
+
+        canvas.addEventListener("pointerup", finishDrag);
+        canvas.addEventListener("pointercancel", () => cancelActiveDrag());
+        canvas.addEventListener("lostpointercapture", () => {
+          if (activeDrag) cancelActiveDrag();
+        });
+
+        // ---- HUD & Keyboard Controls ----
+        btnMute.addEventListener("click", () => {
+          hasUserGesture = true;
+          muted = !muted;
+          if (muted) {
+            stopSpeech();
+          } else {
+            unlockAudio();
+            playPickupPop();
+          }
+          syncHud();
+        });
+
+        btnPause.addEventListener("click", () => {
+          unlockAudio();
+          togglePause();
+        });
+
+        btnNext.addEventListener("click", () => {
+          unlockAudio();
+          cancelActiveDrag();
+          mode = "play";
+          setupRound(roundIndex + 1);
+          playHappyChime(0);
+          syncHud();
+          announce("Switched to next habitat pair.");
+        });
+
+        function togglePause() {
+          if (mode === "title") return;
+          if (mode === "paused") {
+            mode = modeBeforePause;
+            announce("Game resumed.");
+          } else {
+            cancelActiveDrag();
+            stopSpeech();
+            modeBeforePause = mode;
+            mode = "paused";
+            announce("Game paused.");
+          }
+          syncHud();
+        }
+
+        function pauseIfPlaying() {
+          if (mode === "play" || mode === "roundComplete") {
+            cancelActiveDrag();
+            stopSpeech();
+            modeBeforePause = mode;
+            mode = "paused";
+            syncHud();
+          }
+        }
+
+        window.addEventListener("blur", pauseIfPlaying);
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) pauseIfPlaying();
+        });
+
+        window.addEventListener("keydown", (e) => {
+          if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", " "].includes(e.key)) {
+            e.preventDefault();
+          }
+          unlockAudio();
+
+          if (e.key === "m" || e.key === "M") {
+            btnMute.click();
+            return;
+          }
+          if (e.key === "p" || e.key === "P") {
+            togglePause();
+            return;
+          }
+          if ((e.key === "n" || e.key === "N") && (mode === "play" || mode === "roundComplete")) {
+            btnNext.click();
+            return;
+          }
+          if (e.key === " " || e.key === "Enter") {
+            if (mode === "title") {
+              mode = "play";
+              setupRound(0);
+              playHappyChime(0);
+              syncHud();
+            } else if (mode === "paused") {
+              togglePause();
+            } else if (mode === "roundComplete") {
+              mode = "play";
+              setupRound(roundIndex + 1);
+              playHappyChime(0);
+              syncHud();
+            }
+          }
+        });
+
+        // ---- Update Loop (clamped dt) ----
+        function easeOutBack(t) {
+          const c1 = 1.70158;
+          const c3 = c1 + 1;
+          return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+        }
+
+        function easeOutCubic(t) {
+          return 1 - Math.pow(1 - t, 3);
+        }
+
+        function update(dt) {
+          elapsed += dt;
+
+          if (mode === "paused") return;
+
+          if (mode === "play") {
+            idleTime += dt;
+          }
+
+          if (activeDrag && activeDrag.touchLift < activeDrag.touchLiftTarget) {
+            activeDrag.touchLift = Math.min(
+              activeDrag.touchLiftTarget,
+              activeDrag.touchLift + activeDrag.touchLiftTarget * (dt / 0.08)
+            );
+          }
+
+          // Hover state for habitats
+          const hoveredHabIdx = activeDrag ? findHabitatAt(activeDrag.animal.x, activeDrag.animal.y) : -1;
+          for (let i = 0; i < habitatCards.length; i++) {
+            const c = habitatCards[i];
+            if (c.wobbleTimer > 0) c.wobbleTimer = Math.max(0, c.wobbleTimer - dt);
+            if (c.celebrateTimer > 0) c.celebrateTimer = Math.max(0, c.celebrateTimer - dt);
+            const targetHover = i === hoveredHabIdx ? 1 : 0;
+            c.hoverGlow += (targetHover - c.hoverGlow) * Math.min(1, dt * 14);
+          }
+
+          // Animals animations
+          for (let i = 0; i < roundAnimals.length; i++) {
+            const a = roundAnimals[i];
+            if (a.bounceTimer > 0) a.bounceTimer = Math.max(0, a.bounceTimer - dt);
+
+            if (a.state === "returning") {
+              a.animT += dt;
+              const p = Math.min(1, a.animT / a.animDur);
+              const e = easeOutCubic(p);
+              const arc = Math.sin(p * Math.PI) * (reducedMotion ? 0 : 28);
+              a.x = a.fromX + (a.homeX - a.fromX) * e;
+              a.y = a.fromY + (a.homeY - a.fromY) * e - arc;
+              if (p >= 1) {
+                a.state = "tray";
+                a.x = a.homeX;
+                a.y = a.homeY;
+              }
+            } else if (a.state === "flying") {
+              a.animT += dt;
+              const p = Math.min(1, a.animT / a.animDur);
+              const e = easeOutCubic(p);
+              const arc = Math.sin(p * Math.PI) * (reducedMotion ? 0 : 32);
+              a.x = a.fromX + (a.targetX - a.fromX) * e;
+              a.y = a.fromY + (a.targetY - a.fromY) * e - arc;
+              if (p >= 1) {
+                resolveDropOnHabitat(a, a.targetCardIndex);
+              }
+            } else if (a.state === "settled" && a.animT < a.animDur) {
+              a.animT = Math.min(a.animDur, a.animT + dt);
+              const e = easeOutBack(a.animT / a.animDur);
+              a.x = a.fromX + (a.targetX - a.fromX) * e;
+              a.y = a.fromY + (a.targetY - a.fromY) * e;
+            }
+          }
+
+          // Round complete trigger
+          if (mode === "play" && roundCompleteDelay > 0) {
+            roundCompleteDelay -= dt;
+            if (roundCompleteDelay <= 0) {
+              mode = "roundComplete";
+              roundCompleteTimer = 0;
+              roundsCompleted += 1;
+              saveCount(STORAGE_ROUNDS, roundsCompleted);
+              playRoundFanfare();
+              speakText("Yay! Great job!", { rate: 0.92, pitch: 1.2 });
+              spawnBurst(W * 0.3, H * 0.38, ["#ffe14d", "#ff6b9d", "#39e58c", "#38d9ff"], 24, 1.25);
+              spawnBurst(W * 0.7, H * 0.38, ["#ffe14d", "#ff9f43", "#b88cff", "#39e58c"], 24, 1.25);
+              announce("Round complete! Great job! Tap Next for more animals.");
+            }
+          }
+
+          if (mode === "roundComplete") {
+            roundCompleteTimer += dt;
+          }
+
+          // Speech bubble decay
+          if (speechBubble) {
+            speechBubble.timer -= dt;
+            if (speechBubble.timer <= 0) speechBubble = null;
+          }
+
+          // Particles
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.life -= dt;
+            if (p.life <= 0) {
+              particles.splice(i, 1);
+              continue;
+            }
+            p.vy += 240 * dt;
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.rot += p.vrot * dt;
+          }
+        }
+
+        // ---- Drawing Helpers ----
+        function roundRectPath(x, y, w, h, r) {
+          const rad = Math.min(r, w / 2, h / 2);
+          ctx.beginPath();
+          ctx.moveTo(x + rad, y);
+          ctx.arcTo(x + w, y, x + w, y + h, rad);
+          ctx.arcTo(x + w, y + h, x, y + h, rad);
+          ctx.arcTo(x, y + h, x, y, rad);
+          ctx.arcTo(x, y, x + w, y, rad);
+          ctx.closePath();
+        }
+
+        function drawStar(cx, cy, outerR, innerR, points) {
+          ctx.beginPath();
+          for (let i = 0; i < points * 2; i++) {
+            const r = i % 2 === 0 ? outerR : innerR;
+            const a = (i * Math.PI) / points - Math.PI / 2;
+            const px = cx + Math.cos(a) * r;
+            const py = cy + Math.sin(a) * r;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+        }
+
+        function drawBackdrop() {
+          const g = ctx.createLinearGradient(0, 0, 0, H);
+          g.addColorStop(0, "#151d42");
+          g.addColorStop(0.6, "#1b2754");
+          g.addColorStop(1, "#131b3a");
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, W, H);
+
+          // Subtle twinkles
+          const starCount = 18;
+          for (let i = 0; i < starCount; i++) {
+            const sx = ((i * 197.3) % 1) * W;
+            const sy = ((i * 93.7) % 1) * H;
+            const tw = reducedMotion ? 0.28 : 0.16 + 0.18 * Math.sin(elapsed * 1.7 + i * 2.1);
+            ctx.fillStyle = `rgba(255, 255, 255, ${tw.toFixed(2)})`;
+            ctx.beginPath();
+            ctx.arc(sx, sy, 1.8 + (i % 2), 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        // ---- Illustrated Pictorial Habitats (Zero Text Needed!) ----
+        function drawHabitatScene(card) {
+          const { x, y, w, h, id, def } = card;
+          const sway = reducedMotion ? 0 : Math.sin(elapsed * 1.6) * 5;
+          const wobbleX =
+            card.wobbleTimer > 0 && !reducedMotion
+              ? Math.sin(card.wobbleTimer * 44) * 9 * (card.wobbleTimer / 0.46)
+              : 0;
+
+          ctx.save();
+          ctx.translate(wobbleX, 0);
+
+          const scaleBoost = 1 + card.hoverGlow * 0.025 + (card.celebrateTimer > 0 ? Math.sin(card.celebrateTimer * 12) * 0.018 : 0);
+          const cx = x + w / 2;
+          const cy = y + h / 2;
+          ctx.translate(cx, cy);
+          ctx.scale(scaleBoost, scaleBoost);
+          ctx.translate(-cx, -cy);
+
+          // Soft shadow
+          ctx.save();
+          ctx.shadowColor = card.hoverGlow > 0.1 ? def.glow : "rgba(0, 0, 0, 0.42)";
+          ctx.shadowBlur = 18 + card.hoverGlow * 18;
+          ctx.shadowOffsetY = 6;
+          roundRectPath(x, y, w, h, 24);
+          ctx.fillStyle = "#111";
+          ctx.fill();
+          ctx.restore();
+
+          // Clip scene inside rounded habitat card
+          ctx.save();
+          roundRectPath(x, y, w, h, 24);
+          ctx.clip();
+
+          if (id === "jungle") {
+            drawJungleScene(x, y, w, h, sway);
+          } else if (id === "ocean") {
+            drawOceanScene(x, y, w, h, sway);
+          } else if (id === "farm") {
+            drawFarmScene(x, y, w, h, sway);
+          } else if (id === "sky") {
+            drawSkyScene(x, y, w, h, sway);
+          } else if (id === "pond") {
+            drawPondScene(x, y, w, h, sway);
+          } else if (id === "snow") {
+            drawSnowScene(x, y, w, h, sway);
+          }
+
+          // Hover warm invitation overlay
+          if (card.hoverGlow > 0.02) {
+            ctx.fillStyle = `rgba(255, 255, 255, ${(card.hoverGlow * 0.14).toFixed(3)})`;
+            ctx.fillRect(x, y, w, h);
+          }
+
+          // Gentle warm amber flash on wrong drop (never harsh)
+          if (card.wobbleTimer > 0) {
+            ctx.fillStyle = `rgba(255, 198, 92, ${(card.wobbleTimer * 0.42).toFixed(3)})`;
+            ctx.fillRect(x, y, w, h);
+          }
+
+          ctx.restore();
+
+          // Crisp rounded border
+          roundRectPath(x, y, w, h, 24);
+          ctx.lineWidth = card.hoverGlow > 0.15 ? 6 : 4;
+          ctx.strokeStyle =
+            card.wobbleTimer > 0
+              ? "#ffbe55"
+              : card.hoverGlow > 0.15 || card.celebrateTimer > 0
+                ? "#ffe866"
+                : def.border;
+          ctx.stroke();
+
+          ctx.restore();
+        }
+
+        function drawJungleScene(x, y, w, h, sway) {
+          // Warm dappled tropical backdrop
+          const g = ctx.createLinearGradient(x, y, x, y + h);
+          g.addColorStop(0, "#1d7a47");
+          g.addColorStop(0.5, "#32a858");
+          g.addColorStop(1, "#1e6e38");
+          ctx.fillStyle = g;
+          ctx.fillRect(x, y, w, h);
+
+          // Sunbeams
+          ctx.fillStyle = "rgba(255, 246, 173, 0.16)";
+          ctx.beginPath();
+          ctx.moveTo(x + w * 0.35, y);
+          ctx.lineTo(x + w * 0.56, y);
+          ctx.lineTo(x + w * 0.85, y + h);
+          ctx.lineTo(x + w * 0.45, y + h);
+          ctx.closePath();
+          ctx.fill();
+
+          // Tree trunks on sides
+          ctx.fillStyle = "#7a4a24";
+          ctx.fillRect(x + w * 0.03, y + h * 0.15, w * 0.11, h * 0.85);
+          ctx.fillRect(x + w * 0.86, y + h * 0.12, w * 0.11, h * 0.88);
+
+          // Hanging vines
+          ctx.strokeStyle = "#5be068";
+          ctx.lineWidth = Math.max(3, w * 0.015);
+          [0.24, 0.52, 0.76].forEach((rx, i) => {
+            ctx.beginPath();
+            ctx.moveTo(x + w * rx, y);
+            ctx.quadraticCurveTo(x + w * rx + sway * (i % 2 === 0 ? 1 : -1), y + h * 0.22, x + w * rx + sway * 0.6, y + h * (0.32 + (i % 2) * 0.1));
+            ctx.stroke();
+          });
+
+          // Lush canopy leaves at top
+          const leafColors = ["#186636", "#279949", "#4cd964"];
+          for (let i = 0; i < 9; i++) {
+            ctx.fillStyle = leafColors[i % 3];
+            ctx.beginPath();
+            ctx.arc(x + (w / 8) * i, y + h * (0.06 + (i % 2) * 0.05), w * 0.15, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // Rolling jungle floor
+          ctx.fillStyle = "#52c94b";
+          ctx.beginPath();
+          ctx.ellipse(x + w * 0.5, y + h * 0.96, w * 0.68, h * 0.34, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Big tropical palm fronds in bottom corners
+          function drawFrond(fx, fy, dir) {
+            ctx.save();
+            ctx.translate(fx, fy);
+            ctx.rotate(dir * 0.35 + sway * 0.012);
+            ctx.fillStyle = "#1f8c3d";
+            ctx.beginPath();
+            ctx.ellipse(dir * w * 0.12, -h * 0.04, w * 0.15, h * 0.055, dir * -0.25, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+          drawFrond(x + w * 0.04, y + h * 0.86, 1);
+          drawFrond(x + w * 0.96, y + h * 0.84, -1);
+
+          // Bright tropical flower accents
+          [
+            { rx: 0.16, ry: 0.84, c: "#ff6ea9" },
+            { rx: 0.83, ry: 0.86, c: "#ffcf40" },
+          ].forEach((fl) => {
+            const fx = x + w * fl.rx;
+            const fy = y + h * fl.ry;
+            const fr = Math.max(5, Math.min(w, h) * 0.035);
+            ctx.fillStyle = fl.c;
+            for (let p = 0; p < 5; p++) {
+              const ang = (p * Math.PI * 2) / 5;
+              ctx.beginPath();
+              ctx.arc(fx + Math.cos(ang) * fr, fy + Math.sin(ang) * fr, fr * 0.65, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.fillStyle = "#fff59d";
+            ctx.beginPath();
+            ctx.arc(fx, fy, fr * 0.55, 0, Math.PI * 2);
+            ctx.fill();
+          });
+        }
+
+        function drawOceanScene(x, y, w, h, sway) {
+          // Bright sunlit turquoise-to-deep-blue ocean
+          const g = ctx.createLinearGradient(x, y, x, y + h);
+          g.addColorStop(0, "#5be2ff");
+          g.addColorStop(0.24, "#1db7f0");
+          g.addColorStop(0.75, "#0d78c2");
+          g.addColorStop(1, "#084c8d");
+          ctx.fillStyle = g;
+          ctx.fillRect(x, y, w, h);
+
+          // Animated rolling waves near top
+          ctx.fillStyle = "rgba(255, 255, 255, 0.34)";
+          ctx.beginPath();
+          ctx.moveTo(x, y + h * 0.22);
+          for (let px = 0; px <= w + 20; px += 20) {
+            const wy = y + h * 0.18 + Math.sin(px * 0.045 + (reducedMotion ? 0 : elapsed * 2.2)) * 7;
+            ctx.lineTo(x + px, wy);
+          }
+          ctx.lineTo(x + w, y);
+          ctx.lineTo(x, y);
+          ctx.closePath();
+          ctx.fill();
+
+          // Sandy ocean floor
+          ctx.fillStyle = "#f2cf7e";
+          ctx.beginPath();
+          ctx.ellipse(x + w * 0.5, y + h * 1.02, w * 0.7, h * 0.22, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Swaying kelp / seaweed
+          ctx.strokeStyle = "#22c984";
+          ctx.lineCap = "round";
+          ctx.lineWidth = Math.max(5, w * 0.026);
+          [0.12, 0.19, 0.83, 0.9].forEach((rx, idx) => {
+            const bx = x + w * rx;
+            const topY = y + h * (idx % 2 === 0 ? 0.58 : 0.66);
+            ctx.beginPath();
+            ctx.moveTo(bx, y + h * 0.96);
+            ctx.quadraticCurveTo(bx + sway * (idx % 2 === 0 ? 1.4 : -1.2), y + h * 0.78, bx + sway * 0.6, topY);
+            ctx.stroke();
+          });
+
+          // Pink coral branch
+          ctx.strokeStyle = "#ff7c9d";
+          ctx.lineWidth = Math.max(5, w * 0.024);
+          const cx = x + w * 0.5;
+          ctx.beginPath();
+          ctx.moveTo(cx, y + h * 0.94);
+          ctx.lineTo(cx, y + h * 0.79);
+          ctx.moveTo(cx, y + h * 0.87);
+          ctx.lineTo(cx - w * 0.05, y + h * 0.8);
+          ctx.moveTo(cx, y + h * 0.85);
+          ctx.lineTo(cx + w * 0.055, y + h * 0.78);
+          ctx.stroke();
+
+          // Rising ocean bubbles
+          for (let i = 0; i < 7; i++) {
+            const bx = x + w * (0.15 + i * 0.12);
+            const cycle = reducedMotion ? i * 0.14 : (elapsed * 0.22 + i * 0.19) % 1;
+            const by = y + h * (0.85 - cycle * 0.68);
+            const br = Math.max(3, Math.min(w, h) * (0.018 + (i % 3) * 0.008));
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.65)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(bx + Math.sin(cycle * 8 + i) * 4, by, br, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+
+        function drawFarmScene(x, y, w, h, sway) {
+          // Sunny meadow sky
+          const g = ctx.createLinearGradient(x, y, x, y + h);
+          g.addColorStop(0, "#66ccff");
+          g.addColorStop(0.55, "#b3ecff");
+          g.addColorStop(1, "#79db58");
+          ctx.fillStyle = g;
+          ctx.fillRect(x, y, w, h);
+
+          // Smiling golden sun
+          const sunX = x + w * 0.82;
+          const sunY = y + h * 0.19;
+          const sunR = Math.min(w, h) * 0.11;
+          ctx.fillStyle = "#ffe24a";
+          ctx.beginPath();
+          ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Fluffy cloud
+          ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+          const clX = x + w * 0.25 + sway * 0.7;
+          const clY = y + h * 0.19;
+          const clR = Math.min(w, h) * 0.065;
+          ctx.beginPath();
+          ctx.arc(clX - clR, clY, clR * 0.8, 0, Math.PI * 2);
+          ctx.arc(clX, clY - clR * 0.35, clR, 0, Math.PI * 2);
+          ctx.arc(clX + clR, clY, clR * 0.8, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Rolling green meadow hills
+          ctx.fillStyle = "#62cc47";
+          ctx.beginPath();
+          ctx.ellipse(x + w * 0.25, y + h * 0.95, w * 0.58, h * 0.44, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#4fb839";
+          ctx.beginPath();
+          ctx.ellipse(x + w * 0.78, y + h * 0.98, w * 0.62, h * 0.42, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Iconic red barn in background center-left
+          const barnW = Math.min(w * 0.34, h * 0.42);
+          const barnH = barnW * 0.76;
+          const bx = x + w * 0.5 - barnW / 2;
+          const by = y + h * 0.56 - barnH;
+          ctx.fillStyle = "#e03e3e";
+          ctx.fillRect(bx, by + barnH * 0.34, barnW, barnH * 0.66);
+          ctx.beginPath();
+          ctx.moveTo(bx - barnW * 0.08, by + barnH * 0.38);
+          ctx.lineTo(bx + barnW * 0.2, by + barnH * 0.08);
+          ctx.lineTo(bx + barnW * 0.5, by);
+          ctx.lineTo(bx + barnW * 0.8, by + barnH * 0.08);
+          ctx.lineTo(bx + barnW * 1.08, by + barnH * 0.38);
+          ctx.closePath();
+          ctx.fillStyle = "#b52828";
+          ctx.fill();
+          // White barn door X
+          const dw = barnW * 0.38;
+          const dh = barnH * 0.44;
+          const dx = bx + (barnW - dw) / 2;
+          const dy = by + barnH - dh;
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = Math.max(2, barnW * 0.045);
+          ctx.strokeRect(dx, dy, dw, dh);
+          ctx.beginPath();
+          ctx.moveTo(dx, dy);
+          ctx.lineTo(dx + dw, dy + dh);
+          ctx.moveTo(dx + dw, dy);
+          ctx.lineTo(dx, dy + dh);
+          ctx.stroke();
+
+          // Wooden fence along horizon
+          ctx.fillStyle = "#d99d59";
+          const fenceY = y + h * 0.55;
+          ctx.fillRect(x, fenceY, w, Math.max(4, h * 0.02));
+          ctx.fillRect(x, fenceY + h * 0.055, w, Math.max(4, h * 0.02));
+          for (let i = 0; i < 7; i++) {
+            ctx.fillRect(x + w * (0.06 + i * 0.145), fenceY - h * 0.025, Math.max(5, w * 0.024), h * 0.12);
+          }
+        }
+
+        function drawSkyScene(x, y, w, h, sway) {
+          const g = ctx.createLinearGradient(x, y, x, y + h);
+          g.addColorStop(0, "#2f9eff");
+          g.addColorStop(0.65, "#7ed4ff");
+          g.addColorStop(1, "#c8f2ff");
+          ctx.fillStyle = g;
+          ctx.fillRect(x, y, w, h);
+
+          // Cheerful rainbow arc
+          const rbColors = ["#ff6b7a", "#ffb347", "#ffe957", "#69e07c", "#5bc0ff"];
+          const rbR = Math.min(w, h) * 0.56;
+          const rbX = x + w * 0.5;
+          const rbY = y + h * 0.88;
+          rbColors.forEach((col, i) => {
+            ctx.strokeStyle = col;
+            ctx.lineWidth = Math.max(5, Math.min(w, h) * 0.036);
+            ctx.beginPath();
+            ctx.arc(rbX, rbY, rbR - i * ctx.lineWidth * 0.9, Math.PI * 1.08, Math.PI * 1.92);
+            ctx.stroke();
+          });
+
+          // Warm bright sun
+          const sunX = x + w * 0.8;
+          const sunY = y + h * 0.2;
+          const sunR = Math.min(w, h) * 0.12;
+          ctx.fillStyle = "#ffe14d";
+          ctx.beginPath();
+          ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Big fluffy drifting clouds
+          function drawCloud(cx, cy, s) {
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(cx - s * 1.05, cy + s * 0.15, s * 0.78, 0, Math.PI * 2);
+            ctx.arc(cx - s * 0.28, cy - s * 0.22, s * 0.95, 0, Math.PI * 2);
+            ctx.arc(cx + s * 0.62, cy - s * 0.08, s * 0.85, 0, Math.PI * 2);
+            ctx.arc(cx + s * 1.2, cy + s * 0.2, s * 0.68, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          const cs = Math.min(w, h) * 0.09;
+          drawCloud(x + w * 0.24 + sway, y + h * 0.24, cs);
+          drawCloud(x + w * 0.74 - sway * 0.8, y + h * 0.78, cs * 1.15);
+          drawCloud(x + w * 0.24 + sway * 0.6, y + h * 0.82, cs * 0.95);
+        }
+
+        function drawPondScene(x, y, w, h, sway) {
+          // Soft green bank at top + shimmering teal-blue pond water
+          const g = ctx.createLinearGradient(x, y, x, y + h);
+          g.addColorStop(0, "#8ae67e");
+          g.addColorStop(0.28, "#56c963");
+          g.addColorStop(0.32, "#2ad1c4");
+          g.addColorStop(1, "#138aa8");
+          ctx.fillStyle = g;
+          ctx.fillRect(x, y, w, h);
+
+          // Pond shoreline curve
+          ctx.fillStyle = "#2ed1c7";
+          ctx.beginPath();
+          ctx.ellipse(x + w * 0.5, y + h * 0.72, w * 0.65, h * 0.45, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Gentle water ripples
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+          ctx.lineWidth = 2.5;
+          [
+            { rx: 0.5, ry: 0.46, rw: 0.16 },
+            { rx: 0.26, ry: 0.82, rw: 0.14 },
+            { rx: 0.74, ry: 0.84, rw: 0.13 },
+          ].forEach((rp, idx) => {
+            const pulse = reducedMotion ? 1 : 0.9 + 0.16 * Math.sin(elapsed * 2 + idx);
+            ctx.beginPath();
+            ctx.ellipse(x + w * rp.rx, y + h * rp.ry, w * rp.rw * pulse, h * 0.04 * pulse, 0, 0, Math.PI * 2);
+            ctx.stroke();
+          });
+
+          // Big green lily pads with notch + pink lotus blossom
+          function drawLilyPad(lx, ly, r, hasFlower) {
+            ctx.fillStyle = "#36b848";
+            ctx.beginPath();
+            ctx.moveTo(lx, ly);
+            ctx.arc(lx, ly, r, 0.28, Math.PI * 2 - 0.28);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = "#228533";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            if (hasFlower) {
+              ctx.fillStyle = "#ff85c0";
+              for (let p = 0; p < 5; p++) {
+                const ang = (p * Math.PI * 2) / 5 - Math.PI / 2;
+                ctx.beginPath();
+                ctx.ellipse(lx + Math.cos(ang) * r * 0.36, ly + Math.sin(ang) * r * 0.28, r * 0.3, r * 0.16, ang, 0, Math.PI * 2);
+                ctx.fill();
+              }
+              ctx.fillStyle = "#ffe55c";
+              ctx.beginPath();
+              ctx.arc(lx, ly, r * 0.18, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+          const padR = Math.min(w, h) * 0.15;
+          drawLilyPad(x + w * 0.28, y + h * 0.72, padR, false);
+          drawLilyPad(x + w * 0.74, y + h * 0.74, padR * 0.92, true);
+
+          // Tall cattail reeds on left & right banks
+          [0.09, 0.14, 0.87, 0.92].forEach((rx, idx) => {
+            const bx = x + w * rx;
+            const topY = y + h * (idx % 2 === 0 ? 0.12 : 0.18);
+            ctx.strokeStyle = "#287d34";
+            ctx.lineWidth = Math.max(3, w * 0.014);
+            ctx.beginPath();
+            ctx.moveTo(bx, y + h * 0.44);
+            ctx.quadraticCurveTo(bx + sway * 0.6, y + h * 0.28, bx + sway * 0.4, topY);
+            ctx.stroke();
+
+            ctx.fillStyle = "#6e3e1e";
+            ctx.beginPath();
+            ctx.ellipse(bx + sway * 0.4, topY + h * 0.04, Math.max(4, w * 0.018), h * 0.045, 0, 0, Math.PI * 2);
+            ctx.fill();
+          });
+        }
+
+        function drawSnowScene(x, y, w, h, sway) {
+          const g = ctx.createLinearGradient(x, y, x, y + h);
+          g.addColorStop(0, "#5ea8e6");
+          g.addColorStop(0.55, "#bce4ff");
+          g.addColorStop(1, "#eaf8ff");
+          ctx.fillStyle = g;
+          ctx.fillRect(x, y, w, h);
+
+          // Snowy mountains / icebergs in back
+          ctx.fillStyle = "#d9f1ff";
+          ctx.beginPath();
+          ctx.moveTo(x, y + h * 0.66);
+          ctx.lineTo(x + w * 0.28, y + h * 0.26);
+          ctx.lineTo(x + w * 0.56, y + h * 0.66);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = "#c4e7ff";
+          ctx.beginPath();
+          ctx.moveTo(x + w * 0.44, y + h * 0.68);
+          ctx.lineTo(x + w * 0.76, y + h * 0.22);
+          ctx.lineTo(x + w * 1.04, y + h * 0.68);
+          ctx.closePath();
+          ctx.fill();
+
+          // Snow-capped evergreen pine trees
+          function drawPine(px, py, s) {
+            ctx.fillStyle = "#297a63";
+            ctx.beginPath();
+            ctx.moveTo(px, py - s * 1.4);
+            ctx.lineTo(px - s * 0.7, py);
+            ctx.lineTo(px + s * 0.7, py);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.moveTo(px, py - s * 1.4);
+            ctx.lineTo(px - s * 0.32, py - s * 0.75);
+            ctx.lineTo(px + s * 0.32, py - s * 0.75);
+            ctx.closePath();
+            ctx.fill();
+          }
+          const ps = Math.min(w, h) * 0.14;
+          drawPine(x + w * 0.14, y + h * 0.64, ps);
+          drawPine(x + w * 0.87, y + h * 0.62, ps * 0.9);
+
+          // Snowy hills foreground
+          ctx.fillStyle = "#ffffff";
+          ctx.beginPath();
+          ctx.ellipse(x + w * 0.5, y + h * 0.96, w * 0.72, h * 0.36, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Sparkling falling snowflakes
+          ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+          for (let i = 0; i < 12; i++) {
+            const fx = x + w * ((i * 0.091 + 0.05) % 0.94) + Math.sin(elapsed * 1.3 + i) * (reducedMotion ? 0 : 5);
+            const cycle = reducedMotion ? (i * 0.083) % 1 : (elapsed * 0.18 + i * 0.11) % 1;
+            const fy = y + h * cycle;
+            ctx.beginPath();
+            ctx.arc(fx, fy, 2.5 + (i % 3), 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        // ---- Cute Hand-Crafted Canvas Animal Art (20 Animals) ----
+        function drawCuteEyes(r, offsetX, offsetY, eyeR, blink) {
+          const ex = r * (offsetX || 0.22);
+          const ey = r * (offsetY || -0.1);
+          const er = r * (eyeR || 0.095);
+
+          [-1, 1].forEach((side) => {
+            if (blink) {
+              ctx.strokeStyle = "#222";
+              ctx.lineWidth = Math.max(2, r * 0.05);
+              ctx.lineCap = "round";
+              ctx.beginPath();
+              ctx.arc(side * ex, ey, er, Math.PI * 0.15, Math.PI * 0.85);
+              ctx.stroke();
+            } else {
+              ctx.fillStyle = "#1d1d26";
+              ctx.beginPath();
+              ctx.arc(side * ex, ey, er, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#ffffff";
+              ctx.beginPath();
+              ctx.arc(side * ex - er * 0.32, ey - er * 0.32, er * 0.38, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          });
+        }
+
+        function drawCheeks(r, offsetX, offsetY) {
+          ctx.fillStyle = "rgba(255, 118, 158, 0.45)";
+          [-1, 1].forEach((side) => {
+            ctx.beginPath();
+            ctx.ellipse(side * r * (offsetX || 0.36), r * (offsetY || 0.08), r * 0.11, r * 0.07, 0, 0, Math.PI * 2);
+            ctx.fill();
+          });
+        }
+
+        function drawSmile(r, yOffset, width) {
+          ctx.strokeStyle = "#2e2420";
+          ctx.lineWidth = Math.max(2, r * 0.048);
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.arc(0, r * (yOffset || 0.12), r * (width || 0.14), 0.15 * Math.PI, 0.85 * Math.PI);
+          ctx.stroke();
+        }
+
+        function drawAnimalArtwork(id, r, phase) {
+          const blink = !reducedMotion && Math.sin(elapsed * 0.85 + phase) > 0.965;
+          const wag = reducedMotion ? 0 : Math.sin(elapsed * 4 + phase) * 0.12;
+
+          switch (id) {
+            case "lion": {
+              // Fluffy mane
+              ctx.fillStyle = "#d96b1f";
+              for (let i = 0; i < 12; i++) {
+                const a = (i * Math.PI * 2) / 12 + wag * 0.25;
+                ctx.beginPath();
+                ctx.arc(Math.cos(a) * r * 0.56, Math.sin(a) * r * 0.56, r * 0.25, 0, Math.PI * 2);
+                ctx.fill();
+              }
+              // Ears
+              ctx.fillStyle = "#f7b538";
+              ctx.beginPath();
+              ctx.arc(-r * 0.42, -r * 0.44, r * 0.17, 0, Math.PI * 2);
+              ctx.arc(r * 0.42, -r * 0.44, r * 0.17, 0, Math.PI * 2);
+              ctx.fill();
+              // Face
+              ctx.fillStyle = "#ffd15c";
+              ctx.beginPath();
+              ctx.arc(0, 0, r * 0.55, 0, Math.PI * 2);
+              ctx.fill();
+              // Nose & muzzle
+              ctx.fillStyle = "#fff1c7";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.14, r * 0.23, r * 0.16, 0, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#8a3c16";
+              ctx.beginPath();
+              ctx.moveTo(-r * 0.11, r * 0.04);
+              ctx.lineTo(r * 0.11, r * 0.04);
+              ctx.lineTo(0, r * 0.15);
+              ctx.closePath();
+              ctx.fill();
+              drawCuteEyes(r, 0.21, -0.1, 0.085, blink);
+              drawCheeks(r, 0.34, 0.08);
+              drawSmile(r, 0.14, 0.12);
+              break;
+            }
+            case "monkey": {
+              // Big round ears
+              [-1, 1].forEach((s) => {
+                ctx.fillStyle = "#8a5229";
+                ctx.beginPath();
+                ctx.arc(s * r * 0.62, -r * 0.04, r * 0.22, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "#ffd2a6";
+                ctx.beginPath();
+                ctx.arc(s * r * 0.62, -r * 0.04, r * 0.13, 0, Math.PI * 2);
+                ctx.fill();
+              });
+              // Head
+              ctx.fillStyle = "#8a5229";
+              ctx.beginPath();
+              ctx.arc(0, 0, r * 0.62, 0, Math.PI * 2);
+              ctx.fill();
+              // Light heart-shaped face mask
+              ctx.fillStyle = "#ffd6ad";
+              ctx.beginPath();
+              ctx.arc(-r * 0.2, -r * 0.1, r * 0.28, 0, Math.PI * 2);
+              ctx.arc(r * 0.2, -r * 0.1, r * 0.28, 0, Math.PI * 2);
+              ctx.ellipse(0, r * 0.16, r * 0.44, r * 0.32, 0, 0, Math.PI * 2);
+              ctx.fill();
+              drawCuteEyes(r, 0.2, -0.12, 0.085, blink);
+              drawCheeks(r, 0.34, 0.09);
+              drawSmile(r, 0.14, 0.18);
+              break;
+            }
+            case "whale": {
+              // Water spout
+              ctx.strokeStyle = "#8ce9ff";
+              ctx.lineWidth = Math.max(2.5, r * 0.07);
+              ctx.lineCap = "round";
+              ctx.beginPath();
+              ctx.moveTo(0, -r * 0.42);
+              ctx.quadraticCurveTo(-r * 0.12, -r * 0.78, -r * 0.28, -r * 0.68);
+              ctx.moveTo(0, -r * 0.42);
+              ctx.quadraticCurveTo(r * 0.12, -r * 0.78, r * 0.28, -r * 0.68);
+              ctx.stroke();
+              // Tail fluke
+              ctx.fillStyle = "#2985e0";
+              ctx.beginPath();
+              ctx.moveTo(r * 0.46, r * 0.05);
+              ctx.lineTo(r * 0.78, -r * 0.24 + wag * r);
+              ctx.lineTo(r * 0.76, r * 0.22 + wag * r);
+              ctx.closePath();
+              ctx.fill();
+              // Plump whale body
+              ctx.fillStyle = "#3498f5";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.05, r * 0.05, r * 0.62, r * 0.46, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Belly
+              ctx.fillStyle = "#cceeff";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.16, r * 0.28, r * 0.4, r * 0.2, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Eye & smile
+              ctx.fillStyle = "#1d1d26";
+              ctx.beginPath();
+              ctx.arc(-r * 0.3, -r * 0.02, r * 0.085, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#fff";
+              ctx.beginPath();
+              ctx.arc(-r * 0.33, -r * 0.05, r * 0.032, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = "#184673";
+              ctx.lineWidth = Math.max(2, r * 0.048);
+              ctx.beginPath();
+              ctx.arc(-r * 0.34, r * 0.12, r * 0.16, 0.05 * Math.PI, 0.7 * Math.PI);
+              ctx.stroke();
+              break;
+            }
+            case "fish": {
+              // Tail fin
+              ctx.fillStyle = "#ff6b35";
+              ctx.beginPath();
+              ctx.moveTo(r * 0.35, 0);
+              ctx.lineTo(r * 0.78, -r * 0.34 + wag * r);
+              ctx.lineTo(r * 0.78, r * 0.34 + wag * r);
+              ctx.closePath();
+              ctx.fill();
+              // Top fin
+              ctx.fillStyle = "#ff9f1c";
+              ctx.beginPath();
+              ctx.ellipse(0, -r * 0.42, r * 0.26, r * 0.15, -0.2, 0, Math.PI * 2);
+              ctx.fill();
+              // Body
+              ctx.fillStyle = "#ff822e";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.06, 0, r * 0.54, r * 0.4, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Clownfish white stripe
+              ctx.fillStyle = "#ffffff";
+              ctx.beginPath();
+              ctx.ellipse(r * 0.06, 0, r * 0.11, r * 0.37, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Big friendly eye
+              ctx.fillStyle = "#ffffff";
+              ctx.beginPath();
+              ctx.arc(-r * 0.28, -r * 0.08, r * 0.14, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#1d1d26";
+              ctx.beginPath();
+              ctx.arc(-r * 0.3, -r * 0.08, r * 0.08, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#fff";
+              ctx.beginPath();
+              ctx.arc(-r * 0.32, -r * 0.11, r * 0.03, 0, Math.PI * 2);
+              ctx.fill();
+              // Cute mouth
+              ctx.strokeStyle = "#8a2b0d";
+              ctx.lineWidth = Math.max(2, r * 0.05);
+              ctx.beginPath();
+              ctx.arc(-r * 0.42, r * 0.12, r * 0.1, 0.1, Math.PI * 0.65);
+              ctx.stroke();
+              break;
+            }
+            case "cow": {
+              // Horns
+              ctx.fillStyle = "#f2c66d";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.34, -r * 0.56, r * 0.1, r * 0.18, -0.35, 0, Math.PI * 2);
+              ctx.ellipse(r * 0.34, -r * 0.56, r * 0.1, r * 0.18, 0.35, 0, Math.PI * 2);
+              ctx.fill();
+              // Ears
+              ctx.fillStyle = "#33333d";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.62, -r * 0.26, r * 0.2, r * 0.12, -0.3, 0, Math.PI * 2);
+              ctx.ellipse(r * 0.62, -r * 0.26, r * 0.2, r * 0.12, 0.3, 0, Math.PI * 2);
+              ctx.fill();
+              // White head
+              ctx.fillStyle = "#ffffff";
+              ctx.beginPath();
+              ctx.ellipse(0, -r * 0.04, r * 0.56, r * 0.54, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Cow black spot
+              ctx.fillStyle = "#2b2b36";
+              ctx.beginPath();
+              ctx.ellipse(r * 0.24, -r * 0.32, r * 0.22, r * 0.16, 0.4, 0, Math.PI * 2);
+              ctx.fill();
+              // Big pink snout
+              ctx.fillStyle = "#ffabc4";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.24, r * 0.46, r * 0.28, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Nostrils
+              ctx.fillStyle = "#b85c78";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.16, r * 0.2, r * 0.055, r * 0.08, -0.2, 0, Math.PI * 2);
+              ctx.ellipse(r * 0.16, r * 0.2, r * 0.055, r * 0.08, 0.2, 0, Math.PI * 2);
+              ctx.fill();
+              drawCuteEyes(r, 0.22, -0.14, 0.085, blink);
+              drawSmile(r, 0.26, 0.14);
+              break;
+            }
+            case "pig": {
+              // Pointy pink ears
+              ctx.fillStyle = "#ff8eb3";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.44, -r * 0.46, r * 0.19, r * 0.22, -0.45, 0, Math.PI * 2);
+              ctx.ellipse(r * 0.44, -r * 0.46, r * 0.19, r * 0.22, 0.45, 0, Math.PI * 2);
+              ctx.fill();
+              // Round rosy head
+              ctx.fillStyle = "#ffa8c6";
+              ctx.beginPath();
+              ctx.arc(0, 0, r * 0.62, 0, Math.PI * 2);
+              ctx.fill();
+              // Snout
+              ctx.fillStyle = "#ff78a5";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.14, r * 0.28, r * 0.2, 0, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#a8385e";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.1, r * 0.14, r * 0.05, r * 0.08, 0, 0, Math.PI * 2);
+              ctx.ellipse(r * 0.1, r * 0.14, r * 0.05, r * 0.08, 0, 0, Math.PI * 2);
+              ctx.fill();
+              drawCuteEyes(r, 0.24, -0.14, 0.085, blink);
+              drawCheeks(r, 0.4, 0.1);
+              break;
+            }
+            case "dolphin": {
+              // Dorsal fin
+              ctx.fillStyle = "#2b90d9";
+              ctx.beginPath();
+              ctx.moveTo(-r * 0.05, -r * 0.34);
+              ctx.quadraticCurveTo(r * 0.1, -r * 0.72, r * 0.24, -r * 0.3);
+              ctx.closePath();
+              ctx.fill();
+              // Tail
+              ctx.fillStyle = "#2b90d9";
+              ctx.beginPath();
+              ctx.moveTo(r * 0.42, r * 0.14);
+              ctx.lineTo(r * 0.76, -r * 0.12 + wag * r);
+              ctx.lineTo(r * 0.72, r * 0.36 + wag * r);
+              ctx.closePath();
+              ctx.fill();
+              // Curved body + beak
+              ctx.fillStyle = "#52b6f5";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.02, r * 0.56, r * 0.38, -0.1, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.56, r * 0.12, r * 0.22, r * 0.11, 0.15, 0, Math.PI * 2);
+              ctx.fill();
+              // Light belly
+              ctx.fillStyle = "#d9f3ff";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.06, r * 0.22, r * 0.4, r * 0.16, -0.08, 0, Math.PI * 2);
+              ctx.fill();
+              // Eye
+              ctx.fillStyle = "#1d1d26";
+              ctx.beginPath();
+              ctx.arc(-r * 0.26, -r * 0.04, r * 0.08, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#fff";
+              ctx.beginPath();
+              ctx.arc(-r * 0.28, -r * 0.07, r * 0.03, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+            }
+            case "octopus": {
+              // 6 wiggly tentacles
+              ctx.strokeStyle = "#9b5de5";
+              ctx.lineWidth = Math.max(6, r * 0.17);
+              ctx.lineCap = "round";
+              [-0.48, -0.28, -0.09, 0.09, 0.28, 0.48].forEach((tx, idx) => {
+                ctx.beginPath();
+                ctx.moveTo(tx * r * 0.7, r * 0.2);
+                ctx.quadraticCurveTo(
+                  tx * r * 1.15 + Math.sin(elapsed * 3.5 + idx) * (reducedMotion ? 0 : r * 0.08),
+                  r * 0.52,
+                  tx * r * 1.25,
+                  r * 0.62
+                );
+                ctx.stroke();
+              });
+              // Round head
+              ctx.fillStyle = "#b073ff";
+              ctx.beginPath();
+              ctx.ellipse(0, -r * 0.08, r * 0.52, r * 0.48, 0, 0, Math.PI * 2);
+              ctx.fill();
+              drawCuteEyes(r, 0.2, -0.06, 0.1, blink);
+              drawCheeks(r, 0.34, 0.1);
+              drawSmile(r, 0.1, 0.14);
+              break;
+            }
+            case "dog": {
+              // Floppy brown ears
+              ctx.fillStyle = "#a35e28";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.56, r * 0.02, r * 0.2, r * 0.36, 0.2 + wag * 0.4, 0, Math.PI * 2);
+              ctx.ellipse(r * 0.56, r * 0.02, r * 0.2, r * 0.36, -0.2 - wag * 0.4, 0, Math.PI * 2);
+              ctx.fill();
+              // Head
+              ctx.fillStyle = "#f2b263";
+              ctx.beginPath();
+              ctx.arc(0, -r * 0.02, r * 0.56, 0, Math.PI * 2);
+              ctx.fill();
+              // Light snout
+              ctx.fillStyle = "#ffe8c2";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.18, r * 0.28, r * 0.22, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Happy pink tongue
+              ctx.fillStyle = "#ff6b8a";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.38, r * 0.1, r * 0.13, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Nose
+              ctx.fillStyle = "#3a2216";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.08, r * 0.12, r * 0.085, 0, 0, Math.PI * 2);
+              ctx.fill();
+              drawCuteEyes(r, 0.22, -0.14, 0.088, blink);
+              drawSmile(r, 0.16, 0.14);
+              break;
+            }
+            case "sheep": {
+              // Fluffy cloud wool puffs
+              ctx.fillStyle = "#ffffff";
+              for (let i = 0; i < 10; i++) {
+                const a = (i * Math.PI * 2) / 10;
+                ctx.beginPath();
+                ctx.arc(Math.cos(a) * r * 0.5, Math.sin(a) * r * 0.48, r * 0.24, 0, Math.PI * 2);
+                ctx.fill();
+              }
+              ctx.beginPath();
+              ctx.arc(0, 0, r * 0.52, 0, Math.PI * 2);
+              ctx.fill();
+              // Cute ears
+              ctx.fillStyle = "#4d4347";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.5, -r * 0.04, r * 0.18, r * 0.1, -0.25, 0, Math.PI * 2);
+              ctx.ellipse(r * 0.5, -r * 0.04, r * 0.18, r * 0.1, 0.25, 0, Math.PI * 2);
+              ctx.fill();
+              // Dark face
+              ctx.fillStyle = "#5c5257";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.08, r * 0.38, r * 0.36, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Fluffy forehead tuft
+              ctx.fillStyle = "#ffffff";
+              ctx.beginPath();
+              ctx.arc(-r * 0.12, -r * 0.24, r * 0.16, 0, Math.PI * 2);
+              ctx.arc(r * 0.12, -r * 0.24, r * 0.16, 0, Math.PI * 2);
+              ctx.arc(0, -r * 0.28, r * 0.17, 0, Math.PI * 2);
+              ctx.fill();
+              // Bright eyes on dark face
+              [-1, 1].forEach((s) => {
+                ctx.fillStyle = "#ffffff";
+                ctx.beginPath();
+                ctx.arc(s * r * 0.16, r * 0.04, r * 0.09, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "#1d1d26";
+                ctx.beginPath();
+                ctx.arc(s * r * 0.16, r * 0.04, r * 0.05, 0, Math.PI * 2);
+                ctx.fill();
+              });
+              ctx.strokeStyle = "#ffd6e4";
+              ctx.lineWidth = Math.max(2, r * 0.045);
+              ctx.beginPath();
+              ctx.arc(0, r * 0.2, r * 0.1, 0.15 * Math.PI, 0.85 * Math.PI);
+              ctx.stroke();
+              break;
+            }
+            case "bird": {
+              // Flapping wing
+              ctx.fillStyle = "#2274e0";
+              ctx.beginPath();
+              ctx.ellipse(r * 0.16, r * 0.05 + wag * r * 0.6, r * 0.34, r * 0.22, -0.35 + wag, 0, Math.PI * 2);
+              ctx.fill();
+              // Plump bluebird body
+              ctx.fillStyle = "#3ba9ff";
+              ctx.beginPath();
+              ctx.arc(-r * 0.04, r * 0.02, r * 0.52, 0, Math.PI * 2);
+              ctx.fill();
+              // Sunny belly
+              ctx.fillStyle = "#ffe57a";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.16, r * 0.22, r * 0.28, r * 0.24, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Golden beak
+              ctx.fillStyle = "#ff9f1c";
+              ctx.beginPath();
+              ctx.moveTo(-r * 0.5, -r * 0.06);
+              ctx.lineTo(-r * 0.8, r * 0.04);
+              ctx.lineTo(-r * 0.48, r * 0.16);
+              ctx.closePath();
+              ctx.fill();
+              // Eye
+              ctx.fillStyle = "#1d1d26";
+              ctx.beginPath();
+              ctx.arc(-r * 0.24, -r * 0.12, r * 0.09, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#fff";
+              ctx.beginPath();
+              ctx.arc(-r * 0.27, -r * 0.15, r * 0.035, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+            }
+            case "bee": {
+              // Fluttering translucent wings
+              ctx.fillStyle = "rgba(255, 255, 255, 0.82)";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.12, -r * 0.44 - wag * r * 0.5, r * 0.24, r * 0.3, -0.35, 0, Math.PI * 2);
+              ctx.ellipse(r * 0.2, -r * 0.42 + wag * r * 0.5, r * 0.22, r * 0.28, 0.35, 0, Math.PI * 2);
+              ctx.fill();
+              // Yellow oval body
+              ctx.fillStyle = "#ffd92e";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.04, r * 0.56, r * 0.44, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Bold stripes (clipped to body)
+              ctx.save();
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.04, r * 0.56, r * 0.44, 0, 0, Math.PI * 2);
+              ctx.clip();
+              ctx.fillStyle = "#2b2520";
+              ctx.fillRect(-r * 0.04, -r * 0.5, r * 0.16, r * 1.1);
+              ctx.fillRect(r * 0.24, -r * 0.5, r * 0.16, r * 1.1);
+              ctx.restore();
+              // Cute antennae
+              ctx.strokeStyle = "#2b2520";
+              ctx.lineWidth = Math.max(2, r * 0.05);
+              ctx.beginPath();
+              ctx.moveTo(-r * 0.32, -r * 0.32);
+              ctx.quadraticCurveTo(-r * 0.46, -r * 0.58, -r * 0.58, -r * 0.52);
+              ctx.stroke();
+              // Eye & smile
+              ctx.fillStyle = "#1d1d26";
+              ctx.beginPath();
+              ctx.arc(-r * 0.3, -r * 0.04, r * 0.085, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#fff";
+              ctx.beginPath();
+              ctx.arc(-r * 0.32, -r * 0.07, r * 0.032, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = "#2b2520";
+              ctx.beginPath();
+              ctx.arc(-r * 0.32, r * 0.12, r * 0.1, 0.15 * Math.PI, 0.8 * Math.PI);
+              ctx.stroke();
+              break;
+            }
+            case "elephant": {
+              // Giant cute flapping ears
+              [-1, 1].forEach((s) => {
+                ctx.fillStyle = "#8ea4bd";
+                ctx.beginPath();
+                ctx.ellipse(s * r * 0.54, -r * 0.02, r * 0.3, r * 0.42, s * (0.18 + wag * 0.5), 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "#ffbfd3";
+                ctx.beginPath();
+                ctx.ellipse(s * r * 0.52, r * 0.02, r * 0.18, r * 0.26, s * 0.18, 0, Math.PI * 2);
+                ctx.fill();
+              });
+              // Head
+              ctx.fillStyle = "#9cb4cf";
+              ctx.beginPath();
+              ctx.arc(0, -r * 0.05, r * 0.5, 0, Math.PI * 2);
+              ctx.fill();
+              // Cute curled trunk
+              ctx.strokeStyle = "#8ea4bd";
+              ctx.lineWidth = Math.max(8, r * 0.22);
+              ctx.lineCap = "round";
+              ctx.beginPath();
+              ctx.moveTo(0, r * 0.08);
+              ctx.quadraticCurveTo(0, r * 0.52, r * 0.24, r * 0.46);
+              ctx.stroke();
+              drawCuteEyes(r, 0.2, -0.14, 0.085, blink);
+              drawCheeks(r, 0.32, 0.06);
+              break;
+            }
+            case "tiger": {
+              // Ears
+              ctx.fillStyle = "#ff8524";
+              ctx.beginPath();
+              ctx.arc(-r * 0.44, -r * 0.44, r * 0.18, 0, Math.PI * 2);
+              ctx.arc(r * 0.44, -r * 0.44, r * 0.18, 0, Math.PI * 2);
+              ctx.fill();
+              // Head
+              ctx.fillStyle = "#ff942e";
+              ctx.beginPath();
+              ctx.arc(0, 0, r * 0.58, 0, Math.PI * 2);
+              ctx.fill();
+              // Bold tiger stripes
+              ctx.fillStyle = "#2b1c12";
+              [-0.14, 0, 0.14].forEach((sx) => {
+                ctx.beginPath();
+                ctx.ellipse(sx * r, -r * 0.44, r * 0.05, r * 0.14, 0, 0, Math.PI * 2);
+                ctx.fill();
+              });
+              [-1, 1].forEach((s) => {
+                ctx.beginPath();
+                ctx.ellipse(s * r * 0.46, -r * 0.04, r * 0.14, r * 0.05, 0, 0, Math.PI * 2);
+                ctx.ellipse(s * r * 0.44, r * 0.12, r * 0.14, r * 0.05, 0, 0, Math.PI * 2);
+                ctx.fill();
+              });
+              // Muzzle & pink nose
+              ctx.fillStyle = "#fff3dc";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.18, r * 0.24, r * 0.17, 0, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#ff6b8a";
+              ctx.beginPath();
+              ctx.moveTo(-r * 0.1, r * 0.06);
+              ctx.lineTo(r * 0.1, r * 0.06);
+              ctx.lineTo(0, r * 0.16);
+              ctx.closePath();
+              ctx.fill();
+              drawCuteEyes(r, 0.21, -0.1, 0.085, blink);
+              drawSmile(r, 0.16, 0.13);
+              break;
+            }
+            case "frog": {
+              // Big top frog eye bumps
+              ctx.fillStyle = "#4cd946";
+              ctx.beginPath();
+              ctx.arc(-r * 0.3, -r * 0.42, r * 0.24, 0, Math.PI * 2);
+              ctx.arc(r * 0.3, -r * 0.42, r * 0.24, 0, Math.PI * 2);
+              ctx.fill();
+              // Wide green face
+              ctx.fillStyle = "#54e34d";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.06, r * 0.62, r * 0.46, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Big white eyes
+              [-1, 1].forEach((s) => {
+                ctx.fillStyle = "#ffffff";
+                ctx.beginPath();
+                ctx.arc(s * r * 0.3, -r * 0.42, r * 0.16, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "#1d1d26";
+                ctx.beginPath();
+                ctx.arc(s * r * 0.3, -r * 0.42, r * 0.09, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "#ffffff";
+                ctx.beginPath();
+                ctx.arc(s * r * 0.27, -r * 0.46, r * 0.035, 0, Math.PI * 2);
+                ctx.fill();
+              });
+              drawCheeks(r, 0.4, 0.12);
+              drawSmile(r, 0.08, 0.32);
+              break;
+            }
+            case "duck": {
+              // Sunny yellow head & body
+              ctx.fillStyle = "#ffe135";
+              ctx.beginPath();
+              ctx.arc(0, -r * 0.06, r * 0.56, 0, Math.PI * 2);
+              ctx.fill();
+              // Cute feather tuft
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.05, -r * 0.64, r * 0.1, r * 0.15, -0.3, 0, Math.PI * 2);
+              ctx.ellipse(r * 0.08, -r * 0.62, r * 0.09, r * 0.14, 0.35, 0, Math.PI * 2);
+              ctx.fill();
+              // Big orange duck bill
+              ctx.fillStyle = "#ff851b";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.18, r * 0.32, r * 0.17, 0, 0, Math.PI * 2);
+              ctx.fill();
+              drawCuteEyes(r, 0.22, -0.14, 0.09, blink);
+              drawCheeks(r, 0.38, 0.04);
+              break;
+            }
+            case "penguin": {
+              // Flippers
+              ctx.fillStyle = "#222b3d";
+              ctx.beginPath();
+              ctx.ellipse(-r * 0.56, r * 0.12, r * 0.16, r * 0.34, 0.28 + wag, 0, Math.PI * 2);
+              ctx.ellipse(r * 0.56, r * 0.12, r * 0.16, r * 0.34, -0.28 - wag, 0, Math.PI * 2);
+              ctx.fill();
+              // Black oval body
+              ctx.fillStyle = "#222b3d";
+              ctx.beginPath();
+              ctx.ellipse(0, 0, r * 0.54, r * 0.6, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // White face & belly mask
+              ctx.fillStyle = "#ffffff";
+              ctx.beginPath();
+              ctx.arc(-r * 0.16, -r * 0.14, r * 0.22, 0, Math.PI * 2);
+              ctx.arc(r * 0.16, -r * 0.14, r * 0.22, 0, Math.PI * 2);
+              ctx.ellipse(0, r * 0.18, r * 0.38, r * 0.36, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Orange beak
+              ctx.fillStyle = "#ff922b";
+              ctx.beginPath();
+              ctx.moveTo(-r * 0.14, -r * 0.02);
+              ctx.lineTo(r * 0.14, -r * 0.02);
+              ctx.lineTo(0, r * 0.16);
+              ctx.closePath();
+              ctx.fill();
+              drawCuteEyes(r, 0.18, -0.14, 0.08, blink);
+              drawCheeks(r, 0.32, 0.02);
+              break;
+            }
+            case "polarBear": {
+              // Round snow-white ears
+              ctx.fillStyle = "#f2faff";
+              ctx.beginPath();
+              ctx.arc(-r * 0.44, -r * 0.44, r * 0.18, 0, Math.PI * 2);
+              ctx.arc(r * 0.44, -r * 0.44, r * 0.18, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#c4e4ff";
+              ctx.beginPath();
+              ctx.arc(-r * 0.44, -r * 0.44, r * 0.1, 0, Math.PI * 2);
+              ctx.arc(r * 0.44, -r * 0.44, r * 0.1, 0, Math.PI * 2);
+              ctx.fill();
+              // Big fluffy white head with soft icy outline
+              ctx.fillStyle = "#ffffff";
+              ctx.strokeStyle = "#b8dcfa";
+              ctx.lineWidth = Math.max(2, r * 0.05);
+              ctx.beginPath();
+              ctx.arc(0, 0, r * 0.58, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.stroke();
+              // Snout & nose
+              ctx.fillStyle = "#e6f4ff";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.16, r * 0.24, r * 0.18, 0, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#2b384d";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.08, r * 0.12, r * 0.08, 0, 0, Math.PI * 2);
+              ctx.fill();
+              drawCuteEyes(r, 0.22, -0.12, 0.085, blink);
+              drawCheeks(r, 0.36, 0.08);
+              drawSmile(r, 0.16, 0.13);
+              break;
+            }
+            case "cat": {
+              // Pointy ears
+              [-1, 1].forEach((s) => {
+                ctx.fillStyle = "#ff9f43";
+                ctx.beginPath();
+                ctx.moveTo(s * r * 0.18, -r * 0.42);
+                ctx.lineTo(s * r * 0.56, -r * 0.64);
+                ctx.lineTo(s * r * 0.54, -r * 0.16);
+                ctx.closePath();
+                ctx.fill();
+                ctx.fillStyle = "#ffb8d1";
+                ctx.beginPath();
+                ctx.moveTo(s * r * 0.28, -r * 0.4);
+                ctx.lineTo(s * r * 0.49, -r * 0.54);
+                ctx.lineTo(s * r * 0.47, -r * 0.24);
+                ctx.closePath();
+                ctx.fill();
+              });
+              // Head
+              ctx.fillStyle = "#ffad57";
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.02, r * 0.58, r * 0.52, 0, 0, Math.PI * 2);
+              ctx.fill();
+              // Whiskers
+              ctx.strokeStyle = "#7a4419";
+              ctx.lineWidth = Math.max(1.8, r * 0.04);
+              [-1, 1].forEach((s) => {
+                ctx.beginPath();
+                ctx.moveTo(s * r * 0.28, r * 0.08);
+                ctx.lineTo(s * r * 0.62, r * 0.02);
+                ctx.moveTo(s * r * 0.28, r * 0.18);
+                ctx.lineTo(s * r * 0.62, r * 0.22);
+                ctx.stroke();
+              });
+              // Pink nose
+              ctx.fillStyle = "#ff6b9d";
+              ctx.beginPath();
+              ctx.moveTo(-r * 0.09, r * 0.05);
+              ctx.lineTo(r * 0.09, r * 0.05);
+              ctx.lineTo(0, r * 0.14);
+              ctx.closePath();
+              ctx.fill();
+              drawCuteEyes(r, 0.22, -0.1, 0.088, blink);
+              drawSmile(r, 0.14, 0.12);
+              break;
+            }
+            case "chicken": {
+              // Red comb on top
+              ctx.fillStyle = "#ff4757";
+              ctx.beginPath();
+              ctx.arc(-r * 0.12, -r * 0.56, r * 0.12, 0, Math.PI * 2);
+              ctx.arc(0, -r * 0.62, r * 0.14, 0, Math.PI * 2);
+              ctx.arc(r * 0.13, -r * 0.55, r * 0.11, 0, Math.PI * 2);
+              ctx.fill();
+              // Plump white body
+              ctx.fillStyle = "#fffdf5";
+              ctx.strokeStyle = "#e6d8b5";
+              ctx.lineWidth = Math.max(2, r * 0.045);
+              ctx.beginPath();
+              ctx.arc(0, 0, r * 0.56, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.stroke();
+              // Red wattle + golden beak
+              ctx.fillStyle = "#ff4757";
+              ctx.beginPath();
+              ctx.arc(0, r * 0.22, r * 0.1, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#ffab2e";
+              ctx.beginPath();
+              ctx.moveTo(-r * 0.15, r * 0.02);
+              ctx.lineTo(r * 0.15, r * 0.02);
+              ctx.lineTo(0, r * 0.2);
+              ctx.closePath();
+              ctx.fill();
+              drawCuteEyes(r, 0.22, -0.12, 0.088, blink);
+              drawCheeks(r, 0.36, 0.06);
+              break;
+            }
+            default: {
+              ctx.fillStyle = "#ffe14d";
+              ctx.beginPath();
+              ctx.arc(0, 0, r * 0.55, 0, Math.PI * 2);
+              ctx.fill();
+              drawCuteEyes(r, 0.2, -0.1, 0.09, blink);
+              drawSmile(r, 0.12, 0.16);
+              break;
+            }
+          }
+        }
+
+        function drawAnimalToken(animal, isDragged, isSelected) {
+          const r = animal.r;
+          const isSettled = animal.state === "settled";
+          const bob =
+            reducedMotion || isDragged
+              ? 0
+              : Math.sin(elapsed * (isSettled ? 2.6 : 2.1) + animal.phase) * (isSettled ? 4 : 3);
+          const bounceScale =
+            animal.bounceTimer > 0 && !reducedMotion
+              ? 1 + Math.sin(animal.bounceTimer * 18) * 0.14 * animal.bounceTimer
+              : 1;
+          const idleNudge =
+            !reducedMotion && mode === "play" && animal.state === "tray" && idleTime > 4.5
+              ? 1 + Math.sin(elapsed * 5 + animal.phase) * 0.055
+              : 1;
+          const baseScale = isDragged ? 1.18 : isSettled ? 0.92 : 1.0;
+          const scale = baseScale * bounceScale * idleNudge;
+
+          ctx.save();
+          ctx.translate(animal.x, animal.y + bob);
+          ctx.scale(scale, scale);
+
+          // Drop shadow (bigger when lifted during drag)
+          ctx.save();
+          ctx.fillStyle = isDragged ? "rgba(0, 0, 0, 0.34)" : "rgba(0, 0, 0, 0.24)";
+          ctx.beginPath();
+          ctx.ellipse(0, isDragged ? r * 1.12 : r * 0.88, r * (isDragged ? 0.78 : 0.72), r * 0.22, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+
+          // Soft circular badge behind unsorted/dragged animals for clear touch affordance
+          if (!isSettled) {
+            ctx.save();
+            ctx.fillStyle = animal.def.badge || "#ffffff";
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.lineWidth = isDragged || isSelected ? 5 : 3.5;
+            ctx.strokeStyle = isDragged || isSelected ? "#ffe14d" : "rgba(255, 255, 255, 0.92)";
+            ctx.stroke();
+
+            if (isDragged || isSelected) {
+              ctx.strokeStyle = "rgba(255, 225, 77, 0.45)";
+              ctx.lineWidth = 10;
+              ctx.beginPath();
+              ctx.arc(0, 0, r + 5, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+
+          drawAnimalArtwork(animal.id, r * 0.96, animal.phase);
+          ctx.restore();
+        }
+
+        function drawStagingTray() {
+          if (!roundAnimals.length) return;
+          // Draw soft empty nest circles where each unsorted animal rests
+          for (let i = 0; i < roundAnimals.length; i++) {
+            const a = roundAnimals[i];
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(a.homeX, a.homeY, a.r * 1.04, 0, Math.PI * 2);
+            if (a.state === "settled") {
+              ctx.fillStyle = "rgba(57, 229, 140, 0.16)";
+              ctx.fill();
+              ctx.strokeStyle = "rgba(57, 229, 140, 0.45)";
+              ctx.lineWidth = 2.5;
+              ctx.stroke();
+              // Friendly little golden star in completed slot
+              ctx.fillStyle = "#ffe14d";
+              drawStar(a.homeX, a.homeY, a.r * 0.34, a.r * 0.16, 5);
+              ctx.fill();
+            } else {
+              ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+              ctx.fill();
+              ctx.setLineDash([7, 7]);
+              ctx.strokeStyle = "rgba(255, 255, 255, 0.28)";
+              ctx.lineWidth = 2.5;
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+        }
+
+        function drawIdleHint() {
+          if (mode !== "play" || activeDrag || idleTime < 4.5) return;
+          const nextAnimal = roundAnimals.find((a) => a.state === "tray");
+          if (!nextAnimal) return;
+          const pulse = reducedMotion ? 0.5 : (elapsed * 1.1) % 1;
+          const yOffset = -nextAnimal.r * 1.25 - pulse * 26;
+          const alpha = Math.sin(pulse * Math.PI) * 0.85;
+
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = "#ffe14d";
+          ctx.beginPath();
+          ctx.moveTo(nextAnimal.x, nextAnimal.y + yOffset - 12);
+          ctx.lineTo(nextAnimal.x - 12, nextAnimal.y + yOffset + 6);
+          ctx.lineTo(nextAnimal.x + 12, nextAnimal.y + yOffset + 6);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+
+        function drawSpeechBubble() {
+          if (!speechBubble) return;
+          const alpha = Math.min(1, speechBubble.timer * 2.5);
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.font = `900 ${Math.max(16, Math.min(26, W * 0.042))}px "Courier New", Courier, monospace`;
+          const textW = ctx.measureText(speechBubble.text).width;
+          const bw = textW + 28;
+          const bh = 42;
+          const bx = Math.max(12, Math.min(W - bw - 12, speechBubble.x - bw / 2));
+          const by = Math.max(12, Math.min(H - bh - 12, speechBubble.y - bh / 2));
+
+          roundRectPath(bx, by, bw, bh, 18);
+          ctx.fillStyle = "rgba(18, 24, 48, 0.9)";
+          ctx.fill();
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = speechBubble.color;
+          ctx.stroke();
+
+          ctx.fillStyle = "#ffffff";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(speechBubble.text, bx + bw / 2, by + bh / 2 + 1);
+          ctx.restore();
+        }
+
+        function drawParticles() {
+          for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            const alpha = Math.max(0, Math.min(1, p.life / 0.5));
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rot);
+            ctx.fillStyle = p.color;
+            if (p.shape === "star") {
+              drawStar(0, 0, p.size, p.size * 0.45, 5);
+              ctx.fill();
+            } else {
+              ctx.beginPath();
+              ctx.arc(0, 0, p.size * 0.65, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.restore();
+          }
+        }
+
+        function drawPillButton(rect, label, bgTop, bgBottom, border) {
+          const pulse = reducedMotion ? 1 : 1 + Math.sin(elapsed * 3.4) * 0.03;
+          const cx = rect.x + rect.w / 2;
+          const cy = rect.y + rect.h / 2;
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.scale(pulse, pulse);
+          ctx.translate(-cx, -cy);
+
+          ctx.shadowColor = "rgba(0, 0, 0, 0.45)";
+          ctx.shadowBlur = 16;
+          ctx.shadowOffsetY = 5;
+
+          const g = ctx.createLinearGradient(rect.x, rect.y, rect.x, rect.y + rect.h);
+          g.addColorStop(0, bgTop);
+          g.addColorStop(1, bgBottom);
+          roundRectPath(rect.x, rect.y, rect.w, rect.h, rect.h / 2);
+          ctx.fillStyle = g;
+          ctx.fill();
+
+          ctx.shadowBlur = 0;
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = border;
+          ctx.stroke();
+
+          ctx.fillStyle = "#111b2e";
+          ctx.font = `900 ${Math.max(18, Math.min(28, rect.h * 0.44))}px "Courier New", Courier, monospace`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(label, cx, cy + 1);
+          ctx.restore();
+        }
+
+        function drawTopScoreBadge() {
+          if (W < 300) return;
+          const pad = Math.max(12, Math.min(22, W * 0.03));
+          const y = Math.max(16, Math.min(26, H * 0.035));
+          ctx.save();
+          // Progress stars for current round (4 cute stars, no reading required!)
+          const starR = Math.max(11, Math.min(16, W * 0.025));
+          const gap = starR * 2.55;
+          const settledCount = roundAnimals.filter((a) => a.state === "settled").length;
+          for (let i = 0; i < 4; i++) {
+            const sx = pad + starR + i * gap;
+            const sy = y + starR;
+            drawStar(sx, sy, starR, starR * 0.46, 5);
+            if (i < settledCount) {
+              ctx.fillStyle = "#ffe14d";
+              ctx.fill();
+              ctx.strokeStyle = "#ff9f1c";
+              ctx.lineWidth = 2;
+              ctx.stroke();
+            } else {
+              ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+              ctx.fill();
+              ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+              ctx.lineWidth = 2;
+              ctx.stroke();
+            }
+          }
+          ctx.restore();
+        }
+
+        function drawTitleScreen() {
+          drawBackdrop();
+
+          // Live split habitat showcase behind title so square previews look vibrant & alive!
+          const pad = Math.max(10, Math.min(24, Math.min(W, H) * 0.04));
+          const gap = Math.max(8, Math.min(20, W * 0.03));
+          const cardW = (W - pad * 2 - gap) / 2;
+          const cardH = H * 0.52;
+          const cardY = H * 0.14;
+
+          drawHabitatScene({
+            id: "jungle",
+            def: HABITATS.jungle,
+            x: pad,
+            y: cardY,
+            w: cardW,
+            h: cardH,
+            wobbleTimer: 0,
+            celebrateTimer: 0,
+            hoverGlow: 0,
+          });
+          drawHabitatScene({
+            id: "ocean",
+            def: HABITATS.ocean,
+            x: pad + cardW + gap,
+            y: cardY,
+            w: cardW,
+            h: cardH,
+            wobbleTimer: 0,
+            celebrateTimer: 0,
+            hoverGlow: 0,
+          });
+
+          // Cheerful bobbing preview animals
+          const demoR = Math.max(22, Math.min(54, Math.min(cardW, cardH) * 0.28));
+          const bob1 = reducedMotion ? 0 : Math.sin(elapsed * 2.4) * 6;
+          const bob2 = reducedMotion ? 0 : Math.sin(elapsed * 2.4 + 1.8) * 6;
+
+          ctx.save();
+          ctx.translate(pad + cardW * 0.5, cardY + cardH * 0.66 + bob1);
+          drawAnimalArtwork("lion", demoR, 0);
+          ctx.restore();
+
+          ctx.save();
+          ctx.translate(pad + cardW + gap + cardW * 0.5, cardY + cardH * 0.62 + bob2);
+          drawAnimalArtwork("whale", demoR, 1.5);
+          ctx.restore();
+
+          // Bright title header
+          const titleSize = Math.max(20, Math.min(48, W * 0.075));
+          ctx.save();
+          ctx.font = `900 ${titleSize}px "Courier New", Courier, monospace`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.lineWidth = Math.max(4, titleSize * 0.16);
+          ctx.strokeStyle = "#101836";
+          ctx.strokeText("ANIMAL SORTER", W / 2, H * 0.08);
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText("ANIMAL SORTER", W / 2, H * 0.08);
+          ctx.restore();
+
+          // Play button
+          drawPillButton(titlePlayBtn, "PLAY ▶", "#56f59f", "#24c975", "#ffffff");
+        }
+
+        function drawPauseOverlay() {
+          ctx.save();
+          ctx.fillStyle = "rgba(10, 14, 34, 0.72)";
+          ctx.fillRect(0, 0, W, H);
+
+          const titleSize = Math.max(26, Math.min(46, W * 0.07));
+          ctx.font = `900 ${titleSize}px "Courier New", Courier, monospace`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText("PAUSED", W / 2, H * 0.42);
+          ctx.restore();
+
+          drawPillButton(pauseResumeBtn, "PLAY ▶", "#56f59f", "#24c975", "#ffffff");
+        }
+
+        function render() {
+          if (mode === "title") {
+            drawTitleScreen();
+            return;
+          }
+
+          drawBackdrop();
+          drawTopScoreBadge();
+
+          // Draw the two pictorial habitat blocks
+          for (let i = 0; i < habitatCards.length; i++) {
+            drawHabitatScene(habitatCards[i]);
+          }
+
+          // Draw bottom staging circles
+          drawStagingTray();
+          drawIdleHint();
+
+          // Draw settled animals first, then tray/returning/flying, then dragged animal on top
+          for (let i = 0; i < roundAnimals.length; i++) {
+            const a = roundAnimals[i];
+            if (a.state === "settled") drawAnimalToken(a, false, false);
+          }
+          for (let i = 0; i < roundAnimals.length; i++) {
+            const a = roundAnimals[i];
+            if (a.state !== "settled" && a.state !== "dragging") {
+              drawAnimalToken(a, false, selectedAnimal === a);
+            }
+          }
+          if (activeDrag && activeDrag.animal) {
+            drawAnimalToken(activeDrag.animal, true, true);
+          }
+
+          drawParticles();
+          drawSpeechBubble();
+
+          if (mode === "roundComplete") {
+            drawPillButton(nextRoundBtn, "NEXT ▶", "#ffe96b", "#ffb82e", "#ffffff");
+          }
+
+          if (mode === "paused") {
+            drawPauseOverlay();
+          }
+        }
+
+        // ---- Main RAF Loop ----
+        let lastTime = performance.now();
+        function loop(now) {
+          const dt = Math.min(Math.max((now - lastTime) / 1000, 0), 0.05);
+          lastTime = now;
+          update(dt);
+          render();
+          requestAnimationFrame(loop);
+        }
+
+        // Boot
+        window.addEventListener("resize", resize);
+        setupRound(0);
+        resize();
+        syncHud();
+        requestAnimationFrame(loop);
+      })();
+    </script>
+  </body>
+</html>

@@ -10,6 +10,7 @@
     <meta name="game:added" content="2026-11-21" />
     <meta name="game:year" content="2026" />
     <meta name="game:controls" content="Arrow keys or WASD to move and rotate, Space to hard drop, C/Shift to hold, P to pause, M to mute, or touch controls" />
+    <meta name="game:author" content="Arcade Bot" />
     <meta name="game:color" content="#00f0ff" />
     <style>
       /* =========================================================================
@@ -53,6 +54,7 @@
         background: #000;
         color: var(--text-primary);
         font-family: var(--font-display);
+        touch-action: none;
       }
 
       body {
@@ -77,6 +79,7 @@
         max-width: 920px;
         height: 100%;
         max-height: 100%;
+        overflow: hidden;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -408,6 +411,7 @@
       .board-stage {
         height: 100%;
         width: 100%;
+        min-width: 0;
         min-height: 0;
         display: flex;
         align-items: center;
@@ -1827,6 +1831,9 @@
            GAME LIFECYCLE & AUTO-PAUSE HYGIENE
            ===================================================================== */
         function startGame() {
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
           Sound.unlock();
           board = createEmptyBoard();
           bag = [];
@@ -1865,6 +1872,9 @@
 
         function resumeGame() {
           if (state !== 'paused') return;
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
           Sound.unlock();
           state = 'playing';
           lastTime = performance.now();
@@ -2314,21 +2324,32 @@
           const code = e.code;
 
           if (code === 'KeyM') {
-            Sound.unlock();
-            Sound.toggleMute();
+            if (!e.repeat) {
+              Sound.unlock();
+              Sound.toggleMute();
+            }
             return;
           }
 
           if (state === 'start' || state === 'gameover') {
-            if (code === 'Enter' || code === 'Space') {
+            if (!e.repeat && (code === 'Enter' || code === 'Space')) {
               startGame();
             }
             return;
           }
 
           if (code === 'KeyP' || code === 'Escape') {
-            Sound.unlock();
-            togglePause();
+            if (!e.repeat) {
+              Sound.unlock();
+              togglePause();
+            }
+            return;
+          }
+
+          if (state === 'paused' && code === 'Enter') {
+            if (!e.repeat) {
+              resumeGame();
+            }
             return;
           }
 
@@ -2408,12 +2429,17 @@
         el.startBtn.addEventListener('click', startGame);
         el.playAgainBtn.addEventListener('click', startGame);
         el.resumeBtn.addEventListener('click', resumeGame);
-        el.pauseTopBtn.addEventListener('click', () => {
+        el.pauseTopBtn.addEventListener('click', (e) => {
+          e.currentTarget.blur();
           Sound.unlock();
           togglePause();
         });
-        el.restartTopBtn.addEventListener('click', startGame);
-        el.muteBtn.addEventListener('click', () => {
+        el.restartTopBtn.addEventListener('click', (e) => {
+          e.currentTarget.blur();
+          startGame();
+        });
+        el.muteBtn.addEventListener('click', (e) => {
+          e.currentTarget.blur();
           Sound.unlock();
           Sound.toggleMute();
         });
