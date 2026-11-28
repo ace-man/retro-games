@@ -19,10 +19,11 @@ Fast lookup map of repository elements modeled as **nodes** and **edges** so LLM
 | `junior:phonics-audio` | `script` | `junior-games/audio/phonics-audio.js` | Shared Web Audio / HTMLAudio British phonics playback engine + 18 cycling cue-word sprites (`window.PhonicsAudio`) |
 | `dir:junior-images` | `directory` | `junior-games/images/phonics/` | Shared 29 high-res `.svg` phonics illustrations (17 MIT Fluent Emoji + 12 custom) & swap `README.md` |
 | `junior:phonics-images` | `script` | `junior-games/images/phonics-images.js` | Shared SVG preload, in-memory cache & Canvas draw helper with pixel-sprite fallback (`window.PhonicsImages`) |
+| `junior:guard` | `script` | `junior-games/shared/junior-guard.js` | Shared toddler-lock module: blocks touch/swipe-back/pinch/context-menu/history-back gestures and mounts slim standalone adult Back + Exit Fullscreen controls (`window.JuniorGuard`) |
 | `doc:index` | `doc` | `docs/index.md` | This graph-style repository index |
 | `doc:overview` | `doc` | `docs/implementation/overview.md` | Thin architecture and cross-file relationship overview |
 | `doc:agents` | `doc` | `AGENTS.md` | Agent workflow rules for using and maintaining `docs/index.md` and `docs/implementation/` |
-| `skill:retro-standard` | `skill` | `.agents/skills/retro-game-html-standard/SKILL.md` | Single-file HTML retro game metadata, embed, and validation standard |
+| `skill:retro-standard` | `skill` | `.agents/skills/retro-game-html-standard/SKILL.md` | Retro & Junior HTML game standard: metadata, embed, shared audio/images, toddler guard, and validation checklist |
 | `meta:readme` | `doc` | `README.md` | Short repository title and tagline |
 | `meta:license` | `config` | `LICENSE` | MIT License |
 
@@ -39,6 +40,7 @@ shell:runtime --renders-into--> shell:index      (#panel-arcade, #panel-junior, 
 shell:styles  --themes-->      shell:index       (default + body[data-section="junior"])
 dir:games     --contains-->    game:*
 dir:junior-games --contains--> junior:*
+junior:*      --loads-->       junior:guard
 junior:phonics-pop, junior:phonics-trace, junior:word-builder --loads--> junior:phonics-audio, junior:phonics-images
 junior:phonics-audio --plays--> dir:junior-audio
 junior:phonics-images --renders--> dir:junior-images
@@ -91,7 +93,7 @@ Quick pointers inside the landing page shell so you know which file owns which c
 | `#panel-arcade`, `#panel-junior` | `shell:index` | Dedicated section `tabpanel`s (`hidden="until-found"` when inactive) |
 | `.junior-hero`, `.junior-space`, `.grid--junior` | `shell:index`, `shell:styles` | Dedicated toddler-friendly banner and card styling for Junior Arcade |
 | `body[data-section="junior"]` | `shell:styles`, `shell:runtime` | Active-section attribute driving Junior theme accents on controls and switcher |
-| `.play`, `dialog.details` | `shell:index`, `shell:runtime` | Full-viewport game play overlay (with fullscreen toggle) and Game Info modal |
+| `.play`, `.play-adult-bar`, `dialog.details` | `shell:index`, `shell:styles`, `shell:runtime` | Full-viewport game play overlay (classic bar for Retro Arcade; locked slim adult Back/Exit Fullscreen strip for Junior Arcade) and Game Info modal |
 | `CONFIG.sections` | `shell:runtime` | Maps section keys (`arcade`, `junior`) to repo folders (`games`, `junior-games`) and UI copy |
 | `detectRepo()` | `shell:runtime` | Resolves `owner/repo` from `?repo=`, `CONFIG`, or `*.github.io` |
 | `fetchDirectoryListing()`, `fetchGameMeta()` | `shell:runtime` | GitHub Contents API fetch + ETag/SHA `localStorage` caching (`retroArcade:v1:*`) |

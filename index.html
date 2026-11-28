@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="description" content="Retro Arcade: play classic arcade games and toddler-friendly junior games right in your browser—no downloads or installs required." />
     <meta name="theme-color" content="#000000" />
     <title>Retro Arcade</title>
@@ -298,6 +298,41 @@
           </button>
         </div>
       </header>
+      <div class="play-adult-bar" role="toolbar" aria-label="Adult controls" hidden>
+        <div class="play-adult-group">
+          <button type="button" class="play-adult-btn play-adult-back" aria-describedby="play-adult-hint">
+            <span class="play-adult-hold-fill" aria-hidden="true"></span>
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M10 3.5L5.5 8 10 12.5" />
+            </svg>
+            <span class="play-adult-btn-label">Back</span>
+          </button>
+          <span id="play-adult-hint" class="play-adult-hint" role="status" aria-live="polite"></span>
+        </div>
+        <div class="play-adult-group">
+          <button type="button" class="play-adult-btn play-adult-fullscreen" hidden>
+            <svg
+              class="play-adult-fs-icon"
+              aria-hidden="true"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            ></svg>
+            <span class="play-adult-btn-label play-adult-fs-label">Fullscreen</span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <dialog class="details" aria-labelledby="details-name">

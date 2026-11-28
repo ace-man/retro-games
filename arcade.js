@@ -93,11 +93,18 @@
     count: document.querySelector("[data-count]"),
     countWord: document.querySelector("[data-count-word]"),
     play: document.querySelector(".play"),
+    playBar: document.querySelector(".play-bar"),
     playBack: document.querySelector(".play-back"),
     playName: document.getElementById("play-name"),
     playStats: document.querySelector(".play-stats"),
     playFullscreen: document.querySelector(".play-fullscreen"),
     playDetailsBtn: document.querySelector(".play-details-toggle"),
+    playAdultBar: document.querySelector(".play-adult-bar"),
+    playAdultBack: document.querySelector(".play-adult-back"),
+    playAdultHint: document.getElementById("play-adult-hint"),
+    playAdultFullscreen: document.querySelector(".play-adult-fullscreen"),
+    playAdultFsIcon: document.querySelector(".play-adult-fs-icon"),
+    playAdultFsLabel: document.querySelector(".play-adult-fs-label"),
     detailsDialog: document.querySelector("dialog.details"),
     detailsName: document.getElementById("details-name"),
     detailsGenre: document.querySelector(".details-harness"),
@@ -123,7 +130,18 @@
     activeGame: null,
     playFrame: null,
     lastFocused: null,
+    juniorLocked: false,
+    juniorExitAuthorized: false,
+    juniorUserExitedFs: false,
   };
+
+  const JUNIOR_HOLD_MS = 650;
+  const JUNIOR_EDGE_PX = 44;
+  const JUNIOR_PLAY_FRAME_NAME = "retro-arcade-junior-play";
+  const ICON_ENTER_FS =
+    '<path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />';
+  const ICON_EXIT_FS =
+    '<path d="M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5" />';
 
   function getActiveState() {
     return state.sections[state.activeSection];
@@ -762,15 +780,82 @@
   }
 
   // ---------------------------------------------------------------------------
-  // In-page Arcade Overlay + Fullscreen Toggle + Details Dialog
+  // In-page Arcade Overlay + Fullscreen Toggle + Junior Lock + Details Dialog
   // ---------------------------------------------------------------------------
+  function isFullscreenSupported() {
+    return Boolean(
+      (document.fullscreenEnabled || document.webkitFullscreenEnabled) &&
+        (typeof els.play.requestFullscreen === "function" ||
+          typeof els.play.webkitRequestFullscreen === "function")
+    );
+  }
+
+  function getFullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+
+  async function requestPlayFullscreen() {
+    if (!isFullscreenSupported() || getFullscreenElement()) return;
+    try {
+      if (typeof els.play.requestFullscreen === "function") {
+        try {
+          await els.play.requestFullscreen({ navigationUI: "hide" });
+        } catch {
+          await els.play.requestFullscreen();
+        }
+      } else if (typeof els.play.webkitRequestFullscreen === "function") {
+        els.play.webkitRequestFullscreen();
+      }
+      if (
+        state.juniorLocked &&
+        navigator.keyboard &&
+        typeof navigator.keyboard.lock === "function"
+      ) {
+        navigator.keyboard.lock(["Escape"]).catch(() => {});
+      }
+    } catch {
+      // Fullscreen may be blocked by browser policy
+    }
+  }
+
+  async function exitPlayFullscreen() {
+    try {
+      if (navigator.keyboard && typeof navigator.keyboard.unlock === "function") {
+        navigator.keyboard.unlock();
+      }
+      if (document.fullscreenElement && typeof document.exitFullscreen === "function") {
+        await document.exitFullscreen();
+      } else if (
+        document.webkitFullscreenElement &&
+        typeof document.webkitExitFullscreen === "function"
+      ) {
+        document.webkitExitFullscreen();
+      }
+    } catch {
+      // Ignore fullscreen exit errors
+    }
+  }
+
   function openGame(game, { pushHash = true } = {}) {
     if (game.section !== state.activeSection) {
       setActiveSection(game.section, { updateHash: false, scrollTab: false });
     }
 
+    const isJunior = game.section === "junior";
+
     state.activeGame = game;
     state.lastFocused = document.activeElement;
+    state.juniorLocked = isJunior;
+    state.juniorExitAuthorized = false;
+    state.juniorUserExitedFs = false;
+
+    els.play.dataset.section = game.section;
+    if (els.playBar) els.playBar.hidden = isJunior;
+    if (els.playAdultBar) els.playAdultBar.hidden = !isJunior;
+    if (els.playAdultHint) {
+      els.playAdultHint.textContent = "";
+      els.playAdultHint.classList.remove("is-visible");
+    }
 
     els.playBack.textContent = CONFIG.sections[game.section]?.backLabel || "← Arcade";
     els.playName.textContent = game.title;
@@ -786,6 +871,9 @@
 
     const iframe = document.createElement("iframe");
     iframe.className = "play-frame";
+    if (isJunior) {
+      iframe.name = JUNIOR_PLAY_FRAME_NAME;
+    }
     iframe.src = game.url;
     iframe.title = game.title;
     iframe.setAttribute("allow", "fullscreen; gamepad");
@@ -794,11 +882,18 @@
 
     els.play.hidden = false;
     document.documentElement.classList.add("is-playing");
+    document.documentElement.classList.toggle("is-playing-junior", isJunior);
 
-    if (pushHash) {
-      const targetHash = `#play=${encodeURIComponent(game.id)}`;
-      if (location.hash !== targetHash) history.pushState({ play: game.id }, "", targetHash);
+    const targetHash = `#play=${encodeURIComponent(game.id)}`;
+    if (isJunior) {
+      // Always push a sentinel history entry so Back / edge-swipe stays locked inside the game
+      history.pushState({ play: game.id, juniorLock: true }, "", targetHash);
+      requestPlayFullscreen().finally(updateFullscreenButton);
+    } else if (pushHash && location.hash !== targetHash) {
+      history.pushState({ play: game.id }, "", targetHash);
     }
+
+    updateFullscreenButton();
 
     iframe.addEventListener("load", () => {
       try {
@@ -809,18 +904,37 @@
     });
   }
 
-  function closeGame({ updateHash = true } = {}) {
+  function closeGame({ updateHash = true, force = false } = {}) {
     if (!state.activeGame) return;
+    if (state.juniorLocked && !state.juniorExitAuthorized && !force) return;
 
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
+    const wasJunior = state.activeGame.section === "junior";
+    state.juniorLocked = false;
+    state.juniorExitAuthorized = false;
+    state.juniorUserExitedFs = false;
+
+    if (getFullscreenElement()) {
+      exitPlayFullscreen();
+    } else if (navigator.keyboard && typeof navigator.keyboard.unlock === "function") {
+      try {
+        navigator.keyboard.unlock();
+      } catch {
+        // Ignore
+      }
     }
     if (els.detailsDialog.open) {
       els.detailsDialog.close();
     }
 
     els.play.hidden = true;
-    document.documentElement.classList.remove("is-playing");
+    els.play.dataset.section = "";
+    if (els.playBar) els.playBar.hidden = false;
+    if (els.playAdultBar) els.playAdultBar.hidden = true;
+    if (els.playAdultHint) {
+      els.playAdultHint.textContent = "";
+      els.playAdultHint.classList.remove("is-visible");
+    }
+    document.documentElement.classList.remove("is-playing", "is-playing-junior");
 
     if (state.playFrame) {
       state.playFrame.remove();
@@ -831,12 +945,22 @@
 
     if (updateHash && location.hash.startsWith("#play=")) {
       const sectionHash = state.activeSection === CONFIG.defaultSection ? "" : `#${state.activeSection}`;
-      history.pushState({ section: state.activeSection }, "", location.pathname + location.search + sectionHash);
+      const targetUrl = location.pathname + location.search + sectionHash;
+      if (wasJunior) {
+        history.replaceState({ section: state.activeSection }, "", targetUrl);
+      } else {
+        history.pushState({ section: state.activeSection }, "", targetUrl);
+      }
     }
 
     if (state.lastFocused && typeof state.lastFocused.focus === "function") {
       state.lastFocused.focus();
     }
+  }
+
+  function authorizeJuniorExit() {
+    state.juniorExitAuthorized = true;
+    closeGame({ updateHash: true, force: true });
   }
 
   function openDetailsDialog(game) {
@@ -847,21 +971,32 @@
   }
 
   function updateFullscreenButton() {
-    const isFs = Boolean(document.fullscreenElement);
+    const isFs = Boolean(getFullscreenElement());
     els.playFullscreen.setAttribute("aria-pressed", String(isFs));
     els.playFullscreen.textContent = isFs ? "✕ EXIT FULL" : "⛶ FULLSCREEN";
+
+    if (els.playAdultFullscreen) {
+      if (!isFullscreenSupported()) {
+        els.playAdultFullscreen.hidden = true;
+      } else {
+        els.playAdultFullscreen.hidden = false;
+        if (els.playAdultFsLabel) {
+          els.playAdultFsLabel.textContent = isFs ? "Exit fullscreen" : "Fullscreen";
+        }
+        if (els.playAdultFsIcon) {
+          els.playAdultFsIcon.innerHTML = isFs ? ICON_EXIT_FS : ICON_ENTER_FS;
+        }
+      }
+    }
   }
 
   async function toggleFullscreen() {
-    try {
-      if (!document.fullscreenElement) {
-        await els.play.requestFullscreen();
-      } else {
-        await document.exitFullscreen();
-      }
-    } catch {
-      // Fullscreen may be blocked by browser policy
+    if (!getFullscreenElement()) {
+      await requestPlayFullscreen();
+    } else {
+      await exitPlayFullscreen();
     }
+    updateFullscreenButton();
   }
 
   // ---------------------------------------------------------------------------
@@ -955,6 +1090,23 @@
     });
 
     document.addEventListener("keydown", (e) => {
+      if (state.juniorLocked) {
+        const key = e.key;
+        if (
+          key === "Escape" ||
+          key === "BrowserBack" ||
+          key === "GoBack" ||
+          key === "BrowserForward" ||
+          (e.altKey && (key === "ArrowLeft" || key === "ArrowRight")) ||
+          (e.metaKey && (key === "[" || key === "]" || key === "ArrowLeft" || key === "ArrowRight")) ||
+          key === "Backspace"
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
+
       if (e.key === "/" && !state.activeGame && document.activeElement !== els.search) {
         e.preventDefault();
         els.search.focus();
@@ -963,7 +1115,7 @@
         if (!els.filterPanel.hidden) {
           els.filterPanel.hidden = true;
           els.filterToggle.setAttribute("aria-expanded", "false");
-        } else if (state.activeGame && !els.detailsDialog.open && !document.fullscreenElement) {
+        } else if (state.activeGame && !els.detailsDialog.open && !getFullscreenElement()) {
           closeGame();
         }
       }
@@ -1055,6 +1207,187 @@
     els.playBack.addEventListener("click", () => closeGame());
     els.playFullscreen.addEventListener("click", toggleFullscreen);
     document.addEventListener("fullscreenchange", updateFullscreenButton);
+    document.addEventListener("webkitfullscreenchange", updateFullscreenButton);
+
+    // Junior Arcade adult controls: brief hold-to-exit Back button & Exit Fullscreen toggle
+    if (els.playAdultBack) {
+      let holdTimer = null;
+      let hintTimer = null;
+      let activePointerId = null;
+      let holdCompleted = false;
+      const reducedMotionQuery = window.matchMedia
+        ? window.matchMedia("(prefers-reduced-motion: reduce)")
+        : { matches: false };
+
+      const showAdultHint = (msg) => {
+        if (!els.playAdultHint) return;
+        els.playAdultHint.textContent = msg;
+        els.playAdultHint.classList.add("is-visible");
+        clearTimeout(hintTimer);
+        hintTimer = setTimeout(() => {
+          els.playAdultHint.classList.remove("is-visible");
+        }, 2200);
+      };
+
+      const cancelAdultHold = (releasedEarly) => {
+        if (holdTimer) {
+          clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+        if (activePointerId !== null) {
+          try {
+            els.playAdultBack.releasePointerCapture(activePointerId);
+          } catch {
+            // Ignore
+          }
+          activePointerId = null;
+        }
+        const wasHolding = els.playAdultBack.classList.contains("is-holding");
+        els.playAdultBack.classList.remove("is-holding");
+        if (releasedEarly && wasHolding && !holdCompleted) {
+          showAdultHint("Hold Back to exit");
+        }
+      };
+
+      els.playAdultBack.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0 && e.pointerType === "mouse") return;
+        holdCompleted = false;
+        activePointerId = e.pointerId;
+        try {
+          els.playAdultBack.setPointerCapture(e.pointerId);
+        } catch {
+          // Ignore
+        }
+        els.playAdultBack.classList.remove("is-holding");
+        void els.playAdultBack.offsetWidth;
+        els.playAdultBack.classList.add("is-holding");
+        if (reducedMotionQuery.matches) {
+          showAdultHint("Holding…");
+        }
+        holdTimer = setTimeout(() => {
+          holdTimer = null;
+          holdCompleted = true;
+          els.playAdultBack.classList.remove("is-holding");
+          authorizeJuniorExit();
+        }, JUNIOR_HOLD_MS);
+      });
+
+      els.playAdultBack.addEventListener("pointerup", () => cancelAdultHold(true));
+      els.playAdultBack.addEventListener("pointercancel", () => cancelAdultHold(false));
+      els.playAdultBack.addEventListener("lostpointercapture", () => cancelAdultHold(false));
+
+      // Keyboard activation (Enter / Space) exits cleanly without pointer hold
+      els.playAdultBack.addEventListener("click", (e) => {
+        if (e.detail === 0) {
+          authorizeJuniorExit();
+        }
+      });
+    }
+
+    if (els.playAdultFullscreen) {
+      els.playAdultFullscreen.addEventListener("click", async () => {
+        if (getFullscreenElement()) {
+          state.juniorUserExitedFs = true;
+          await exitPlayFullscreen();
+        } else {
+          state.juniorUserExitedFs = false;
+          await requestPlayFullscreen();
+        }
+        updateFullscreenButton();
+      });
+    }
+
+    // Parent-level touch-gesture & history-back lock while a Junior game is active
+    const isInteractiveEl = (target) =>
+      Boolean(
+        target &&
+          typeof target.closest === "function" &&
+          target.closest('button, a, input, select, textarea, [role="button"]')
+      );
+
+    document.addEventListener(
+      "touchstart",
+      (e) => {
+        if (!state.juniorLocked || isInteractiveEl(e.target)) return;
+        if (!e.touches || e.touches.length === 0) return;
+        if (e.touches.length > 1) {
+          e.preventDefault();
+          return;
+        }
+        const t = e.touches[0];
+        const w = window.innerWidth || document.documentElement.clientWidth || 0;
+        if (
+          t.clientX <= JUNIOR_EDGE_PX ||
+          t.clientX >= w - JUNIOR_EDGE_PX ||
+          t.clientY <= JUNIOR_EDGE_PX
+        ) {
+          e.preventDefault();
+        }
+      },
+      { passive: false, capture: true }
+    );
+
+    document.addEventListener(
+      "touchmove",
+      (e) => {
+        if (!state.juniorLocked || isInteractiveEl(e.target)) return;
+        e.preventDefault();
+      },
+      { passive: false, capture: true }
+    );
+
+    for (const evtName of ["gesturestart", "gesturechange", "gestureend"]) {
+      document.addEventListener(
+        evtName,
+        (e) => {
+          if (state.juniorLocked) e.preventDefault();
+        },
+        { passive: false, capture: true }
+      );
+    }
+
+    document.addEventListener(
+      "contextmenu",
+      (e) => {
+        if (state.juniorLocked) e.preventDefault();
+      },
+      { capture: true }
+    );
+
+    window.addEventListener(
+      "wheel",
+      (e) => {
+        if (state.juniorLocked && (Math.abs(e.deltaX) > 0 || e.ctrlKey)) {
+          e.preventDefault();
+        }
+      },
+      { passive: false, capture: true }
+    );
+
+    window.addEventListener("popstate", () => {
+      if (state.juniorLocked && !state.juniorExitAuthorized && state.activeGame) {
+        const lockedHash = `#play=${encodeURIComponent(state.activeGame.id)}`;
+        history.pushState({ play: state.activeGame.id, juniorLock: true }, "", lockedHash);
+      }
+    });
+
+    window.addEventListener("beforeunload", (e) => {
+      if (state.juniorLocked && !state.juniorExitAuthorized) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    });
+
+    window.addEventListener("message", (e) => {
+      if (!state.juniorLocked || !state.playFrame) return;
+      if (e.source !== state.playFrame.contentWindow) return;
+      if (location.origin !== "null" && e.origin !== location.origin) return;
+      if (e.data && e.data.type === "junior:gesture") {
+        if (!state.juniorUserExitedFs && !getFullscreenElement() && isFullscreenSupported()) {
+          requestPlayFullscreen().finally(updateFullscreenButton);
+        }
+      }
+    });
 
     const openCurrentDetails = () => {
       if (state.activeGame) openDetailsDialog(state.activeGame);
@@ -1095,6 +1428,14 @@
   }
 
   function syncFromHash() {
+    if (state.activeGame && state.juniorLocked && !state.juniorExitAuthorized) {
+      const lockedHash = `#play=${encodeURIComponent(state.activeGame.id)}`;
+      if (location.hash !== lockedHash) {
+        history.pushState({ play: state.activeGame.id, juniorLock: true }, "", lockedHash);
+      }
+      return;
+    }
+
     const playMatch = location.hash.match(/^#play=(.+)$/);
     if (playMatch) {
       const id = decodeURIComponent(playMatch[1]);

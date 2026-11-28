@@ -16,7 +16,8 @@
 ├── games/                       # Classic arcade HTML games (Retro Arcade section)
 ├── junior-games/                # Toddler-friendly HTML games (Junior Arcade section)
 │   ├── audio/                   # Shared phonics audio module + cached British English .m4a clips
-│   └── images/                  # Shared phonics SVG loader + 29 vector object/scene illustrations
+│   ├── images/                  # Shared phonics SVG loader + 29 vector object/scene illustrations
+│   └── shared/                  # Shared toddler-lock gesture & adult Back/Exit Fullscreen guard (`junior-guard.js`)
 ├── docs/
 │   ├── index.md                 # Graph-style node/edge index of repo elements
 │   └── implementation/
@@ -49,12 +50,12 @@ flowchart LR
   - **Repo auto-detection**: resolves `owner/repo` from `?repo=owner/repo`, `CONFIG.owner`/`CONFIG.repo`, or `*.github.io` URLs.
   - **Multi-section discovery**: reads `CONFIG.sections` (`arcade` -> `games`, `junior` -> `junior-games`) in parallel via the GitHub Contents API, caching directory listings in `localStorage` (`retroArcade:v1:dir:...`) with ETag revalidation and per-file metadata by blob SHA (`retroArcade:v1:meta:<sha>`).
   - **Per-section state**: each section maintains independent search, genre/tag filters, sort state, count badge, and empty/status messages. Switching tabs updates `aria-selected`, `hidden="until-found"`, `document.body.dataset.section`, `document.title`, and URL hash (`#junior`).
-  - **Lazy previews & play overlay**: an `IntersectionObserver` mounts sandboxed preview `<iframe>` elements only for visible cards in the active section. Clicking a card opens `.play` with fullscreen support and `#play=<section>/<filename>` deep-linking (plus legacy `#play=<filename>` fallback).
+  - **Lazy previews & play overlay**: an `IntersectionObserver` mounts sandboxed preview `<iframe>` elements only for visible cards in the active section. Clicking a card opens `.play` with fullscreen support and `#play=<section>/<filename>` deep-linking (plus legacy `#play=<filename>` fallback). Junior games launch in a locked toddler mode (`.play[data-section="junior"]`) that replaces `.play-bar` with a slim adult-only `.play-adult-bar` (hold-to-exit Back button + Exit Fullscreen toggle), requests fullscreen with `navigationUI: "hide"`, and traps touch-swipe/history-back gestures.
 
 ### 2. Game Folders (`games/` and `junior-games/`)
 - **`games/`** holds classic retro arcade cabinets displayed under the **Retro Arcade** tab.
 - **`junior-games/`** holds toddler- and preschool-friendly games (big targets, gentle pace, cheerful audio) displayed under the dedicated **Junior Arcade** tab.
-- Both folders share the same **Single-File Game Contract** (with one intentional shared-asset exception: the toddler phonics games in `junior-games/` load `junior-games/audio/phonics-audio.js`, cached `.m4a` voice clips under `junior-games/audio/phonics/`, `junior-games/images/phonics-images.js`, and `.svg` illustrations under `junior-games/images/phonics/`; `arcade.js` filters strictly for top-level `.html` files, so subfolders and shared assets do not appear as gallery cards):
+- Both folders share the same **Single-File Game Contract** (with intentional shared-asset exceptions under `junior-games/`: all junior games load `junior-games/shared/junior-guard.js` for toddler touch-gesture/history-back locking and standalone adult Back + Exit Fullscreen controls, and the toddler phonics games load `junior-games/audio/phonics-audio.js`, `.m4a` clips under `junior-games/audio/phonics/`, `junior-games/images/phonics-images.js`, and `.svg` illustrations under `junior-games/images/phonics/`; `arcade.js` filters strictly for top-level `.html` files, so subfolders and shared assets do not appear as gallery cards):
   - One standalone `.html` file per game; no external build step.
   - Full-viewport, zero-scrollbar layout so it scales cleanly inside preview and play `<iframe>`s.
   - Metadata in `<head>` read by `parseGameHtml()` in `arcade.js`:
