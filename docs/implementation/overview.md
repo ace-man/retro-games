@@ -15,6 +15,7 @@
 ├── arcade.js                    # Dynamic game discovery, caching, filtering, sorting, play overlay
 ├── games/                       # Classic arcade HTML games (Retro Arcade section)
 ├── junior-games/                # Toddler-friendly HTML games (Junior Arcade section)
+│   └── audio/                   # Shared phonics audio module + cached British English .m4a clips
 ├── docs/
 │   ├── index.md                 # Graph-style node/edge index of repo elements
 │   └── implementation/
@@ -52,7 +53,7 @@ flowchart LR
 ### 2. Game Folders (`games/` and `junior-games/`)
 - **`games/`** holds classic retro arcade cabinets displayed under the **Retro Arcade** tab.
 - **`junior-games/`** holds toddler- and preschool-friendly games (big targets, gentle pace, cheerful audio) displayed under the dedicated **Junior Arcade** tab.
-- Both folders share the same **Single-File Game Contract**:
+- Both folders share the same **Single-File Game Contract** (with one intentional shared-asset exception: the toddler phonics games in `junior-games/` load `junior-games/audio/phonics-audio.js` and cached `.m4a` voice clips under `junior-games/audio/phonics/`; `arcade.js` filters strictly for top-level `.html` files, so subfolders and audio assets do not appear as gallery cards):
   - One standalone `.html` file per game; no external build step.
   - Full-viewport, zero-scrollbar layout so it scales cleanly inside preview and play `<iframe>`s.
   - Metadata in `<head>` read by `parseGameHtml()` in `arcade.js`:

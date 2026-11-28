@@ -196,6 +196,7 @@
       <div id="live-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
     </main>
 
+    <script src="audio/phonics-audio.js"></script>
     <script>
       (() => {
         "use strict";
@@ -395,137 +396,16 @@
         }
 
         // -------------------------------------------------------------------
-        // Procedural Pixel-Art Visual Cues (12x12 grids)
-        // s=snake, a=apple, t=tap, p=pan, i=igloo, n=net
+        // Cycling Cue Words & Pixel-Art Visual Cues (via shared PhonicsAudio)
         // -------------------------------------------------------------------
-        const CUE_SPRITES = {
-          s: {
-            palette: { G: "#3fe070", D: "#1d8f44", Y: "#ffe14d", R: "#ff4d6d", W: "#ffffff", K: "#120b2e" },
-            rows: [
-              "....GGGG....",
-              "...GWGKGG...",
-              "..GGGGGGGG..",
-              ".R.GGGGDD...",
-              "...GGDD.....",
-              "....GGGGGG..",
-              "......GGDDG.",
-              ".....GGDDGG.",
-              "..GGGGDDGG..",
-              ".GGYGGGGG...",
-              "..GGGGGG....",
-              "............",
-            ],
-          },
-          a: {
-            palette: { R: "#ff3b6b", L: "#ff85a3", D: "#b81d48", G: "#52f277", B: "#9c6236" },
-            rows: [
-              "......BB....",
-              ".....BGGG...",
-              ".....BGG....",
-              "..RRR..RRR..",
-              ".RLLRRRRRRR.",
-              ".RLRRRRRRDR.",
-              ".RRRRRRRRDR.",
-              ".RRRRRRRRDR.",
-              ".RRRRRRRDRR.",
-              "..RRRRRRDR..",
-              "...RRDRRR...",
-              "....R..R....",
-            ],
-          },
-          t: {
-            palette: { M: "#c8e0f4", S: "#7ba7cc", H: "#ffffff", C: "#38d9ff", B: "#1e90ff" },
-            rows: [
-              "...HHHHHH...",
-              ".....MM.....",
-              "....MMMM....",
-              "MMMMMMMMS...",
-              "MHHHHMMMMS..",
-              "MMMMMMMMMS..",
-              ".......MMS..",
-              ".......CC...",
-              "......CCCC..",
-              "......CBBC..",
-              ".......CC...",
-              "............",
-            ],
-          },
-          p: {
-            palette: { D: "#3b4259", M: "#64708f", L: "#a6b4d4", W: "#ffffff", Y: "#ffe14d", O: "#ff9f43" },
-            rows: [
-              "............",
-              ".....DDDD...",
-              "...DDMMMMDD.",
-              "..DMMWWWWMMD",
-              "..DMWWYYWWMD",
-              ".DMMWYYYYWMD",
-              "DDMDMWYYOWMD",
-              "DLD.DMWWWWMD",
-              "DD...DDMMDD.",
-              ".......DD...",
-              "............",
-              "............",
-            ],
-          },
-          i: {
-            palette: { W: "#eef9ff", B: "#8fd8ff", C: "#4bb8f0", D: "#1d2754" },
-            rows: [
-              "............",
-              "....WWWW....",
-              "..WWBWWBWW..",
-              ".WWBBBBBBWW.",
-              ".WBBWWWWBBW.",
-              "WBBBBBBBBBBW",
-              "WBWWDDDDWWBW",
-              "WBBDDDDDDBBW",
-              "WBWDDDDDDWBW",
-              "CCCCCCCCCCCC",
-              "BBBBBBBBBBBB",
-              "............",
-            ],
-          },
-          n: {
-            palette: { B: "#c88a4b", D: "#8a5627", C: "#38d9ff", W: "#d8f8ff", O: "#ff9f43" },
-            rows: [
-              "....OOOO....",
-              "..OOCCCCOO..",
-              ".OCWCWCWCWO.",
-              ".OCCWCWCWCO.",
-              ".OCWCWCWCWO.",
-              "..OCCCCCCOO.",
-              "...OOCCOO...",
-              ".....BB.....",
-              "....BBD.....",
-              "...BBD......",
-              "..BBD.......",
-              ".BD.........",
-            ],
-          },
-        };
+        const cueCycler =
+          window.PhonicsAudio && typeof window.PhonicsAudio.createCueCycler === "function"
+            ? window.PhonicsAudio.createCueCycler()
+            : { next: (ch) => (LETTER_META[ch] && LETTER_META[ch].cueWord) || "" };
 
-        function drawPixelSprite(key, cx, cy, size) {
-          const sprite = CUE_SPRITES[key];
-          if (!sprite) return;
-          const rows = sprite.rows;
-          const n = rows.length;
-          const cell = size / n;
-          const x0 = cx - size / 2;
-          const y0 = cy - size / 2;
-          for (let r = 0; r < n; r++) {
-            const row = rows[r];
-            for (let c = 0; c < row.length; c++) {
-              const ch = row[c];
-              if (ch === ".") continue;
-              const col = sprite.palette[ch];
-              if (!col) continue;
-              ctx.fillStyle = col;
-              ctx.fillRect(
-                Math.floor(x0 + c * cell),
-                Math.floor(y0 + r * cell),
-                Math.ceil(cell),
-                Math.ceil(cell)
-              );
-            }
+        function drawCueSprite(word, cx, cy, size) {
+          if (window.PhonicsAudio && typeof window.PhonicsAudio.drawCueSprite === "function") {
+            window.PhonicsAudio.drawCueSprite(ctx, word, cx, cy, size);
           }
         }
 
@@ -563,15 +443,14 @@
         }
 
         // -------------------------------------------------------------------
-        // Web Audio Vocal-Tract & Consonant Phonics Engine (Pure Letter Sounds)
+        // British English Phonics Audio Engine (Cached .m4a + Web Audio SFX)
         // -------------------------------------------------------------------
         let audioCtx = null;
         let hasUserGesture = false;
+        let preloaded = false;
         let muted = false;
         let speechTimer = null;
         let speakerPulse = 0;
-        let noiseBuffer = null;
-        let glottalWave = null;
 
         const NOTES = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99];
         let noteIdx = 0;
@@ -591,33 +470,14 @@
           if (audioCtx && audioCtx.state === "suspended") {
             audioCtx.resume().catch(() => {});
           }
-        }
-
-        function getNoiseBuffer() {
-          if (!audioCtx) return null;
-          if (noiseBuffer) return noiseBuffer;
-          const len = Math.floor(audioCtx.sampleRate * 0.8);
-          const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
-          const data = buf.getChannelData(0);
-          for (let i = 0; i < len; i++) {
-            data[i] = Math.random() * 2 - 1;
+          if (window.PhonicsAudio) {
+            window.PhonicsAudio.unlock(audioCtx);
+            window.PhonicsAudio.setMuted(muted);
+            if (!preloaded) {
+              preloaded = true;
+              window.PhonicsAudio.preload(window.PhonicsAudio.LETTER_LIST, window.PhonicsAudio.getAllCueWords());
+            }
           }
-          noiseBuffer = buf;
-          return noiseBuffer;
-        }
-
-        // Rosenberg-style glottal pulse wave (warm -12 dB/oct human vocal tilt)
-        function getGlottalWave() {
-          if (!audioCtx) return null;
-          if (glottalWave) return glottalWave;
-          const n = 36;
-          const real = new Float32Array(n);
-          const imag = new Float32Array(n);
-          for (let k = 1; k < n; k++) {
-            imag[k] = 1 / Math.pow(k, 1.55);
-          }
-          glottalWave = audioCtx.createPeriodicWave(real, imag);
-          return glottalWave;
         }
 
         function cancelSpeech() {
@@ -625,279 +485,8 @@
             clearTimeout(speechTimer);
             speechTimer = null;
           }
-        }
-
-        function playFormantVoice(opts, gainScale) {
-          if (!audioCtx) return;
-          const ac = audioCtx;
-          const now = ac.currentTime;
-          const dur = opts.dur;
-
-          // Glottal voice source with natural pitch inflection & subtle micro-vibrato
-          const osc = ac.createOscillator();
-          const wave = getGlottalWave();
-          if (wave) osc.setPeriodicWave(wave);
-          else osc.type = "sawtooth";
-
-          osc.frequency.setValueAtTime(opts.f0Start, now);
-          osc.frequency.linearRampToValueAtTime(opts.f0Peak, now + dur * 0.28);
-          osc.frequency.linearRampToValueAtTime(opts.f0End, now + dur);
-
-          const vib = ac.createOscillator();
-          const vibGain = ac.createGain();
-          vib.frequency.setValueAtTime(5.2, now);
-          vibGain.gain.setValueAtTime(2.2, now);
-          vib.connect(vibGain);
-          vibGain.connect(osc.frequency);
-
-          // Mix source + tiny natural breath aspiration
-          const srcBus = ac.createGain();
-          srcBus.gain.setValueAtTime(1.0, now);
-          osc.connect(srcBus);
-
-          let breathSrc = null;
-          const nBuf = getNoiseBuffer();
-          if (nBuf && opts.breath > 0) {
-            breathSrc = ac.createBufferSource();
-            breathSrc.buffer = nBuf;
-            const bg = ac.createGain();
-            bg.gain.setValueAtTime(opts.breath, now);
-            breathSrc.connect(bg);
-            bg.connect(srcBus);
-          }
-
-          // Parallel vocal-tract formant resonators
-          const formantSum = ac.createGain();
-          formantSum.gain.setValueAtTime(1.0, now);
-          for (const [freq, q, gVal] of opts.formants) {
-            const bp = ac.createBiquadFilter();
-            bp.type = "bandpass";
-            bp.frequency.setValueAtTime(freq, now);
-            bp.Q.setValueAtTime(q, now);
-            const fg = ac.createGain();
-            fg.gain.setValueAtTime(gVal, now);
-            srcBus.connect(bp);
-            bp.connect(fg);
-            fg.connect(formantSum);
-          }
-
-          const lp = ac.createBiquadFilter();
-          lp.type = "lowpass";
-          lp.frequency.setValueAtTime(opts.cutoff || 4600, now);
-
-          const env = ac.createGain();
-          const peak = (opts.gain || 0.75) * gainScale;
-          env.gain.setValueAtTime(0.0001, now);
-          env.gain.linearRampToValueAtTime(peak, now + opts.att);
-          env.gain.setValueAtTime(peak * 0.94, now + dur - opts.rel);
-          env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-
-          formantSum.connect(lp);
-          lp.connect(env);
-          env.connect(ac.destination);
-
-          osc.start(now);
-          vib.start(now);
-          if (breathSrc) breathSrc.start(now);
-          osc.stop(now + dur + 0.03);
-          vib.stop(now + dur + 0.03);
-          if (breathSrc) breathSrc.stop(now + dur + 0.03);
-        }
-
-        function playPurePhonic(ch, soft) {
-          if (muted || !hasUserGesture) return;
-          ensureAudio();
-          if (!audioCtx) return;
-          const ac = audioCtx;
-          const now = ac.currentTime;
-          const gs = soft ? 0.6 : 1.0;
-
-          if (ch === "s") {
-            // Pure continuous human-like sibilant "ssss" (never "ess")
-            const buf = getNoiseBuffer();
-            if (!buf) return;
-            const dur = 0.56;
-            const src = ac.createBufferSource();
-            src.buffer = buf;
-            const hp = ac.createBiquadFilter();
-            hp.type = "highpass";
-            hp.frequency.setValueAtTime(4200, now);
-            hp.Q.setValueAtTime(0.8, now);
-
-            const b1 = ac.createBiquadFilter();
-            b1.type = "bandpass";
-            b1.frequency.setValueAtTime(5500, now);
-            b1.Q.setValueAtTime(2.2, now);
-            const g1 = ac.createGain();
-            g1.gain.setValueAtTime(1.0, now);
-
-            const b2 = ac.createBiquadFilter();
-            b2.type = "bandpass";
-            b2.frequency.setValueAtTime(7600, now);
-            b2.Q.setValueAtTime(2.0, now);
-            const g2 = ac.createGain();
-            g2.gain.setValueAtTime(0.75, now);
-
-            const env = ac.createGain();
-            env.gain.setValueAtTime(0.0001, now);
-            env.gain.linearRampToValueAtTime(0.46 * gs, now + 0.06);
-            env.gain.setValueAtTime(0.42 * gs, now + dur - 0.14);
-            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-
-            src.connect(hp);
-            hp.connect(b1);
-            hp.connect(b2);
-            b1.connect(g1);
-            b2.connect(g2);
-            g1.connect(env);
-            g2.connect(env);
-            env.connect(ac.destination);
-            src.start(now);
-            src.stop(now + dur + 0.03);
-          } else if (ch === "a") {
-            // Pure short /æ/ as in "apple" / "ant" (never "aah" or "ay")
-            playFormantVoice(
-              {
-                dur: 0.36,
-                f0Start: 232,
-                f0Peak: 248,
-                f0End: 206,
-                breath: 0.05,
-                att: 0.03,
-                rel: 0.08,
-                gain: 0.82,
-                cutoff: 4600,
-                formants: [
-                  [700, 5.2, 1.0],
-                  [1960, 7.6, 0.92],
-                  [2820, 9.5, 0.44],
-                  [3820, 10.5, 0.2],
-                ],
-              },
-              gs
-            );
-          } else if (ch === "t") {
-            // Crisp unvoiced alveolar stop "t" (no "tuh", no "tee")
-            const buf = getNoiseBuffer();
-            if (!buf) return;
-            const dur = 0.11;
-            const src = ac.createBufferSource();
-            src.buffer = buf;
-
-            const b1 = ac.createBiquadFilter();
-            b1.type = "bandpass";
-            b1.frequency.setValueAtTime(4200, now);
-            b1.Q.setValueAtTime(1.8, now);
-
-            const b2 = ac.createBiquadFilter();
-            b2.type = "bandpass";
-            b2.frequency.setValueAtTime(6600, now);
-            b2.Q.setValueAtTime(2.2, now);
-
-            const env = ac.createGain();
-            env.gain.setValueAtTime(0.0001, now);
-            env.gain.linearRampToValueAtTime(0.9 * gs, now + 0.004);
-            env.gain.exponentialRampToValueAtTime(0.28 * gs, now + 0.022);
-            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-
-            src.connect(b1);
-            src.connect(b2);
-            b1.connect(env);
-            b2.connect(env);
-            env.connect(ac.destination);
-            src.start(now);
-            src.stop(now + dur + 0.02);
-          } else if (ch === "p") {
-            // Crisp unvoiced bilabial puff "p" (no "puh", no "pee")
-            const buf = getNoiseBuffer();
-            if (!buf) return;
-            const dur = 0.12;
-            const src = ac.createBufferSource();
-            src.buffer = buf;
-
-            const b1 = ac.createBiquadFilter();
-            b1.type = "bandpass";
-            b1.frequency.setValueAtTime(780, now);
-            b1.frequency.exponentialRampToValueAtTime(460, now + dur);
-            b1.Q.setValueAtTime(1.0, now);
-
-            const b2 = ac.createBiquadFilter();
-            b2.type = "bandpass";
-            b2.frequency.setValueAtTime(1850, now);
-            b2.Q.setValueAtTime(1.2, now);
-            const g2 = ac.createGain();
-            g2.gain.setValueAtTime(0.55, now);
-
-            const env = ac.createGain();
-            env.gain.setValueAtTime(0.0001, now);
-            env.gain.linearRampToValueAtTime(0.85 * gs, now + 0.006);
-            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-
-            src.connect(b1);
-            src.connect(b2);
-            b1.connect(env);
-            b2.connect(g2);
-            g2.connect(env);
-            env.connect(ac.destination);
-            src.start(now);
-            src.stop(now + dur + 0.02);
-
-            // Soft lip-release thump
-            const pop = ac.createOscillator();
-            const pg = ac.createGain();
-            pop.type = "sine";
-            pop.frequency.setValueAtTime(240, now);
-            pop.frequency.exponentialRampToValueAtTime(115, now + 0.026);
-            pg.gain.setValueAtTime(0.0001, now);
-            pg.gain.linearRampToValueAtTime(0.24 * gs, now + 0.004);
-            pg.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
-            pop.connect(pg);
-            pg.connect(ac.destination);
-            pop.start(now);
-            pop.stop(now + 0.035);
-          } else if (ch === "i") {
-            // Pure short /ɪ/ as in "igloo" / "in" (never "eye")
-            playFormantVoice(
-              {
-                dur: 0.32,
-                f0Start: 238,
-                f0Peak: 254,
-                f0End: 214,
-                breath: 0.04,
-                att: 0.026,
-                rel: 0.075,
-                gain: 0.8,
-                cutoff: 4600,
-                formants: [
-                  [435, 5.8, 1.0],
-                  [2320, 8.2, 0.82],
-                  [2960, 9.8, 0.4],
-                  [3880, 10.5, 0.16],
-                ],
-              },
-              gs
-            );
-          } else if (ch === "n") {
-            // Pure continuous voiced nasal "nnnn" (never "en" or "nuh")
-            playFormantVoice(
-              {
-                dur: 0.48,
-                f0Start: 215,
-                f0Peak: 226,
-                f0End: 202,
-                breath: 0.015,
-                att: 0.045,
-                rel: 0.1,
-                gain: 0.88,
-                cutoff: 2900,
-                formants: [
-                  [272, 4.8, 1.0],
-                  [1450, 6.0, 0.18],
-                  [2450, 7.8, 0.16],
-                ],
-              },
-              gs
-            );
+          if (window.PhonicsAudio) {
+            window.PhonicsAudio.stop();
           }
         }
 
@@ -908,7 +497,9 @@
           if (!soft) {
             speakerPulse = 1.0;
           }
-          playPurePhonic(ch, soft);
+          if (window.PhonicsAudio) {
+            window.PhonicsAudio.playLetter(ch, opts);
+          }
         }
 
         function playTone(f0, f1, dur, type, vol, delay) {
@@ -1258,22 +849,30 @@
           totalStars += 1;
           saveStars(totalStars);
 
-          // Replay crisp phonic sound cleanly
+          const cueWord = cueCycler.next(b.char) || b.meta.cueWord;
+
+          // Replay crisp British phonic sound followed by cycling cue word!
           cancelSpeech();
           speechTimer = setTimeout(() => {
-            speakPhonic(b.char);
+            if (window.PhonicsAudio) {
+              speakerPulse = 1.0;
+              window.PhonicsAudio.playLetterThenWord(b.char, cueWord, { gapMs: 160 });
+            } else {
+              speakPhonic(b.char);
+            }
           }, 90);
 
           cueEffect = {
             char: b.char,
+            cueWord,
             meta: b.meta,
             x: Math.max(96, Math.min(W - 96, b.x)),
             y: Math.max(140, Math.min(H - 110, b.y)),
-            timer: 1.25,
-            maxTimer: 1.25,
+            timer: 1.85,
+            maxTimer: 1.85,
           };
           state = "cue";
-          announce(`Pop! ${b.meta.cueWord}!`);
+          announce(`Pop! ${cueWord}!`);
         }
 
         function handleWrongBubble(b) {
@@ -1285,12 +884,16 @@
 
           // Speak the tapped letter's sound softly for incidental learning, then re-prompt target
           cancelSpeech();
-          speakPhonic(b.char, { soft: true });
-          speechTimer = setTimeout(() => {
-            if (state === "playing") {
-              speakPhonic(targetLetter);
-            }
-          }, 820);
+          speakPhonic(b.char, {
+            soft: true,
+            onEnded: () => {
+              speechTimer = setTimeout(() => {
+                if (state === "playing") {
+                  speakPhonic(targetLetter);
+                }
+              }, 260);
+            },
+          });
         }
 
         // -------------------------------------------------------------------
@@ -1414,6 +1017,7 @@
           e.stopPropagation();
           ensureAudio();
           muted = !muted;
+          if (window.PhonicsAudio) window.PhonicsAudio.setMuted(muted);
           if (muted) cancelSpeech();
           syncHud();
         });
@@ -1790,25 +1394,34 @@
             5
           );
 
-          // Pixel art cue icon
-          drawPixelSprite(cueEffect.char, 0, -cardSize * 0.1, cardSize * 0.54);
+          // Pixel art cue icon (cycles through 3 cue words per letter!)
+          const word = cueEffect.cueWord || cueEffect.meta.cueWord;
+          drawCueSprite(word, 0, -cardSize * 0.11, cardSize * 0.52);
 
-          // Lowercase letter + word underneath
+          // Lowercase vector letter + cue word centered cleanly underneath
+          const isLong = word.length > 6;
+          const fontPx = Math.max(13, Math.floor(cardSize * (isLong ? 0.112 : 0.135)));
+          ctx.font = `900 ${fontPx}px "Courier New", Courier, monospace`;
+          const wordW = ctx.measureText(word).width;
+          const letterScale = cardSize * (isLong ? 0.125 : 0.145);
+          const gap = cardSize * 0.06;
+          const totalW = letterScale * 0.9 + gap + wordW;
+          const startX = -totalW / 2;
+
           drawVectorLetter(
             cueEffect.char,
-            -cardSize * 0.24,
+            startX + letterScale * 0.45,
             cardSize * 0.32,
-            cardSize * 0.16,
+            letterScale,
             cueEffect.meta.fill,
-            Math.max(4, cardSize * 0.032),
+            Math.max(3.5, cardSize * 0.028),
             "#0b071e"
           );
 
-          ctx.font = `900 ${Math.max(16, Math.floor(cardSize * 0.14))}px "Courier New", Courier, monospace`;
           ctx.textAlign = "left";
           ctx.textBaseline = "middle";
           ctx.fillStyle = "#ffffff";
-          ctx.fillText(cueEffect.meta.cueWord, -cardSize * 0.04, cardSize * 0.32);
+          ctx.fillText(word, startX + letterScale * 0.9 + gap, cardSize * 0.32);
           ctx.restore();
         }
 

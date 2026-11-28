@@ -196,6 +196,7 @@
       <div id="live-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
     </main>
 
+    <script src="audio/phonics-audio.js"></script>
     <script>
       (() => {
         "use strict";
@@ -430,130 +431,16 @@
         }
 
         // -------------------------------------------------------------------
-        // Mini Pixel-Art Icons for Letter Completion
+        // Cycling Cue Words & Mini Pixel-Art Icons (via shared PhonicsAudio)
         // -------------------------------------------------------------------
-        const CUE_SPRITES = {
-          s: {
-            palette: { G: "#3fe070", D: "#1d8f44", Y: "#ffe14d", R: "#ff4d6d", W: "#ffffff", K: "#120b2e" },
-            rows: [
-              "....GGGG....",
-              "...GWGKGG...",
-              "..GGGGGGGG..",
-              ".R.GGGGDD...",
-              "...GGDD.....",
-              "....GGGGGG..",
-              "......GGDDG.",
-              ".....GGDDGG.",
-              "..GGGGDDGG..",
-              ".GGYGGGGG...",
-              "..GGGGGG....",
-              "............",
-            ],
-          },
-          a: {
-            palette: { R: "#ff3b6b", L: "#ff85a3", D: "#b81d48", G: "#52f277", B: "#9c6236" },
-            rows: [
-              "......BB....",
-              ".....BGGG...",
-              ".....BGG....",
-              "..RRR..RRR..",
-              ".RLLRRRRRRR.",
-              ".RLRRRRRRDR.",
-              ".RRRRRRRRDR.",
-              ".RRRRRRRRDR.",
-              ".RRRRRRRDRR.",
-              "..RRRRRRDR..",
-              "...RRDRRR...",
-              "....R..R....",
-            ],
-          },
-          t: {
-            palette: { M: "#c8e0f4", S: "#7ba7cc", H: "#ffffff", C: "#38d9ff", B: "#1e90ff" },
-            rows: [
-              "...HHHHHH...",
-              ".....MM.....",
-              "....MMMM....",
-              "MMMMMMMMS...",
-              "MHHHHMMMMS..",
-              "MMMMMMMMMS..",
-              ".......MMS..",
-              ".......CC...",
-              "......CCCC..",
-              "......CBBC..",
-              ".......CC...",
-              "............",
-            ],
-          },
-          p: {
-            palette: { D: "#3b4259", M: "#64708f", L: "#a6b4d4", W: "#ffffff", Y: "#ffe14d", O: "#ff9f43" },
-            rows: [
-              "............",
-              ".....DDDD...",
-              "...DDMMMMDD.",
-              "..DMMWWWWMMD",
-              "..DMWWYYWWMD",
-              ".DMMWYYYYWMD",
-              "DDMDMWYYOWMD",
-              "DLD.DMWWWWMD",
-              "DD...DDMMDD.",
-              ".......DD...",
-              "............",
-              "............",
-            ],
-          },
-          i: {
-            palette: { W: "#eef9ff", B: "#8fd8ff", C: "#4bb8f0", D: "#1d2754" },
-            rows: [
-              "............",
-              "....WWWW....",
-              "..WWBWWBWW..",
-              ".WWBBBBBBWW.",
-              ".WBBWWWWBBW.",
-              "WBBBBBBBBBBW",
-              "WBWWDDDDWWBW",
-              "WBBDDDDDDBBW",
-              "WBWDDDDDDWBW",
-              "CCCCCCCCCCCC",
-              "BBBBBBBBBBBB",
-              "............",
-            ],
-          },
-          n: {
-            palette: { B: "#c88a4b", D: "#8a5627", C: "#38d9ff", W: "#d8f8ff", O: "#ff9f43" },
-            rows: [
-              "....OOOO....",
-              "..OOCCCCOO..",
-              ".OCWCWCWCWO.",
-              ".OCCWCWCWCO.",
-              ".OCWCWCWCWO.",
-              "..OCCCCCCOO.",
-              "...OOCCOO...",
-              ".....BB.....",
-              "....BBD.....",
-              "...BBD......",
-              "..BBD.......",
-              ".BD.........",
-            ],
-          },
-        };
+        const cueCycler =
+          window.PhonicsAudio && typeof window.PhonicsAudio.createCueCycler === "function"
+            ? window.PhonicsAudio.createCueCycler()
+            : { next: (ch) => (LETTERS[ch] && LETTERS[ch].cueWord) || "" };
 
-        function drawPixelSprite(key, cx, cy, size) {
-          const sprite = CUE_SPRITES[key];
-          if (!sprite) return;
-          const n = sprite.rows.length;
-          const cell = size / n;
-          const x0 = cx - size / 2;
-          const y0 = cy - size / 2;
-          for (let r = 0; r < n; r++) {
-            const row = sprite.rows[r];
-            for (let c = 0; c < row.length; c++) {
-              const ch = row[c];
-              if (ch === ".") continue;
-              const col = sprite.palette[ch];
-              if (!col) continue;
-              ctx.fillStyle = col;
-              ctx.fillRect(Math.floor(x0 + c * cell), Math.floor(y0 + r * cell), Math.ceil(cell), Math.ceil(cell));
-            }
+        function drawCueSprite(word, cx, cy, size) {
+          if (window.PhonicsAudio && typeof window.PhonicsAudio.drawCueSprite === "function") {
+            window.PhonicsAudio.drawCueSprite(ctx, word, cx, cy, size);
           }
         }
 
@@ -590,13 +477,12 @@
         }
 
         // -------------------------------------------------------------------
-        // Web Audio Vocal-Tract & Consonant Phonics Engine (Pure Letter Sounds)
+        // British English Phonics Audio Engine (Cached .m4a + Web Audio SFX)
         // -------------------------------------------------------------------
         let audioCtx = null;
         let hasUserGesture = false;
+        let preloaded = false;
         let muted = false;
-        let noiseBuffer = null;
-        let glottalWave = null;
         let speakerPulse = 0;
         let lastSparkleTime = 0;
 
@@ -617,37 +503,20 @@
           if (audioCtx && audioCtx.state === "suspended") {
             audioCtx.resume().catch(() => {});
           }
-        }
-
-        function getNoiseBuffer() {
-          if (!audioCtx) return null;
-          if (noiseBuffer) return noiseBuffer;
-          const len = Math.floor(audioCtx.sampleRate * 0.8);
-          const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
-          const data = buf.getChannelData(0);
-          for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
-          noiseBuffer = buf;
-          return buf;
-        }
-
-        function getGlottalWave() {
-          if (!audioCtx) return null;
-          if (glottalWave) return glottalWave;
-          const n = 36;
-          const real = new Float32Array(n);
-          const imag = new Float32Array(n);
-          for (let k = 1; k < n; k++) {
-            imag[k] = 1 / Math.pow(k, 1.55);
+          if (window.PhonicsAudio) {
+            window.PhonicsAudio.unlock(audioCtx);
+            window.PhonicsAudio.setMuted(muted);
+            if (!preloaded) {
+              preloaded = true;
+              window.PhonicsAudio.preload(window.PhonicsAudio.LETTER_LIST, window.PhonicsAudio.getAllCueWords());
+            }
           }
-          glottalWave = audioCtx.createPeriodicWave(real, imag);
-          return glottalWave;
         }
 
         function cancelSpeech() {
-          if (!window.speechSynthesis) return;
-          try {
-            window.speechSynthesis.cancel();
-          } catch (_) {}
+          if (window.PhonicsAudio) {
+            window.PhonicsAudio.stop();
+          }
         }
 
         function playTone(f0, f1, dur, type, vol, delay) {
@@ -685,269 +554,17 @@
 
         function playLetterCompleteChime() {
           [392.0, 523.25, 659.25, 783.99].forEach((f, i) => {
-            playTone(f, f, i === 3 ? 0.28 : 0.12, "triangle", 0.14, i * 0.075);
+            playTone(f, f, i === 3 ? 0.26 : 0.11, "triangle", 0.1, i * 0.075);
           });
-        }
-
-        function playFormantVoice(opts) {
-          if (!audioCtx) return;
-          const ac = audioCtx;
-          const now = ac.currentTime;
-          const dur = opts.dur;
-
-          const osc = ac.createOscillator();
-          const wave = getGlottalWave();
-          if (wave) osc.setPeriodicWave(wave);
-          else osc.type = "sawtooth";
-
-          osc.frequency.setValueAtTime(opts.f0Start, now);
-          osc.frequency.linearRampToValueAtTime(opts.f0Peak, now + dur * 0.28);
-          osc.frequency.linearRampToValueAtTime(opts.f0End, now + dur);
-
-          const vib = ac.createOscillator();
-          const vibGain = ac.createGain();
-          vib.frequency.setValueAtTime(5.2, now);
-          vibGain.gain.setValueAtTime(2.2, now);
-          vib.connect(vibGain);
-          vibGain.connect(osc.frequency);
-
-          const srcBus = ac.createGain();
-          srcBus.gain.setValueAtTime(1.0, now);
-          osc.connect(srcBus);
-
-          let breathSrc = null;
-          const nBuf = getNoiseBuffer();
-          if (nBuf && opts.breath > 0) {
-            breathSrc = ac.createBufferSource();
-            breathSrc.buffer = nBuf;
-            const bg = ac.createGain();
-            bg.gain.setValueAtTime(opts.breath, now);
-            breathSrc.connect(bg);
-            bg.connect(srcBus);
-          }
-
-          const formantSum = ac.createGain();
-          formantSum.gain.setValueAtTime(1.0, now);
-          for (const [freq, q, gVal] of opts.formants) {
-            const bp = ac.createBiquadFilter();
-            bp.type = "bandpass";
-            bp.frequency.setValueAtTime(freq, now);
-            bp.Q.setValueAtTime(q, now);
-            const fg = ac.createGain();
-            fg.gain.setValueAtTime(gVal, now);
-            srcBus.connect(bp);
-            bp.connect(fg);
-            fg.connect(formantSum);
-          }
-
-          const lp = ac.createBiquadFilter();
-          lp.type = "lowpass";
-          lp.frequency.setValueAtTime(opts.cutoff || 4600, now);
-
-          const env = ac.createGain();
-          const peak = opts.gain || 0.78;
-          env.gain.setValueAtTime(0.0001, now);
-          env.gain.linearRampToValueAtTime(peak, now + opts.att);
-          env.gain.setValueAtTime(peak * 0.94, now + dur - opts.rel);
-          env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-
-          formantSum.connect(lp);
-          lp.connect(env);
-          env.connect(ac.destination);
-
-          osc.start(now);
-          vib.start(now);
-          if (breathSrc) breathSrc.start(now);
-          osc.stop(now + dur + 0.03);
-          vib.stop(now + dur + 0.03);
-          if (breathSrc) breathSrc.stop(now + dur + 0.03);
-        }
-
-        function playPurePhonic(ch) {
-          if (muted || !hasUserGesture) return;
-          ensureAudio();
-          if (!audioCtx) return;
-          const ac = audioCtx;
-          const now = ac.currentTime;
-
-          if (ch === "s") {
-            const buf = getNoiseBuffer();
-            if (!buf) return;
-            const dur = 0.56;
-            const src = ac.createBufferSource();
-            src.buffer = buf;
-            const hp = ac.createBiquadFilter();
-            hp.type = "highpass";
-            hp.frequency.setValueAtTime(4200, now);
-            hp.Q.setValueAtTime(0.8, now);
-
-            const b1 = ac.createBiquadFilter();
-            b1.type = "bandpass";
-            b1.frequency.setValueAtTime(5500, now);
-            b1.Q.setValueAtTime(2.2, now);
-            const g1 = ac.createGain();
-            g1.gain.setValueAtTime(1.0, now);
-
-            const b2 = ac.createBiquadFilter();
-            b2.type = "bandpass";
-            b2.frequency.setValueAtTime(7600, now);
-            b2.Q.setValueAtTime(2.0, now);
-            const g2 = ac.createGain();
-            g2.gain.setValueAtTime(0.75, now);
-
-            const env = ac.createGain();
-            env.gain.setValueAtTime(0.0001, now);
-            env.gain.linearRampToValueAtTime(0.46, now + 0.06);
-            env.gain.setValueAtTime(0.42, now + dur - 0.14);
-            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-
-            src.connect(hp);
-            hp.connect(b1);
-            hp.connect(b2);
-            b1.connect(g1);
-            b2.connect(g2);
-            g1.connect(env);
-            g2.connect(env);
-            env.connect(ac.destination);
-            src.start(now);
-            src.stop(now + dur + 0.03);
-          } else if (ch === "a") {
-            playFormantVoice({
-              dur: 0.36,
-              f0Start: 232,
-              f0Peak: 248,
-              f0End: 206,
-              breath: 0.05,
-              att: 0.03,
-              rel: 0.08,
-              gain: 0.82,
-              cutoff: 4600,
-              formants: [
-                [700, 5.2, 1.0],
-                [1960, 7.6, 0.92],
-                [2820, 9.5, 0.44],
-                [3820, 10.5, 0.2],
-              ],
-            });
-          } else if (ch === "t") {
-            const buf = getNoiseBuffer();
-            if (!buf) return;
-            const dur = 0.11;
-            const src = ac.createBufferSource();
-            src.buffer = buf;
-
-            const b1 = ac.createBiquadFilter();
-            b1.type = "bandpass";
-            b1.frequency.setValueAtTime(4200, now);
-            b1.Q.setValueAtTime(1.8, now);
-
-            const b2 = ac.createBiquadFilter();
-            b2.type = "bandpass";
-            b2.frequency.setValueAtTime(6600, now);
-            b2.Q.setValueAtTime(2.2, now);
-
-            const env = ac.createGain();
-            env.gain.setValueAtTime(0.0001, now);
-            env.gain.linearRampToValueAtTime(0.9, now + 0.004);
-            env.gain.exponentialRampToValueAtTime(0.28, now + 0.022);
-            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-
-            src.connect(b1);
-            src.connect(b2);
-            b1.connect(env);
-            b2.connect(env);
-            env.connect(ac.destination);
-            src.start(now);
-            src.stop(now + dur + 0.02);
-          } else if (ch === "p") {
-            const buf = getNoiseBuffer();
-            if (!buf) return;
-            const dur = 0.12;
-            const src = ac.createBufferSource();
-            src.buffer = buf;
-
-            const b1 = ac.createBiquadFilter();
-            b1.type = "bandpass";
-            b1.frequency.setValueAtTime(780, now);
-            b1.frequency.exponentialRampToValueAtTime(460, now + dur);
-            b1.Q.setValueAtTime(1.0, now);
-
-            const b2 = ac.createBiquadFilter();
-            b2.type = "bandpass";
-            b2.frequency.setValueAtTime(1850, now);
-            b2.Q.setValueAtTime(1.2, now);
-            const g2 = ac.createGain();
-            g2.gain.setValueAtTime(0.55, now);
-
-            const env = ac.createGain();
-            env.gain.setValueAtTime(0.0001, now);
-            env.gain.linearRampToValueAtTime(0.85, now + 0.006);
-            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-
-            src.connect(b1);
-            src.connect(b2);
-            b1.connect(env);
-            b2.connect(g2);
-            g2.connect(env);
-            env.connect(ac.destination);
-            src.start(now);
-            src.stop(now + dur + 0.02);
-
-            const pop = ac.createOscillator();
-            const pg = ac.createGain();
-            pop.type = "sine";
-            pop.frequency.setValueAtTime(240, now);
-            pop.frequency.exponentialRampToValueAtTime(115, now + 0.026);
-            pg.gain.setValueAtTime(0.0001, now);
-            pg.gain.linearRampToValueAtTime(0.24, now + 0.004);
-            pg.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
-            pop.connect(pg);
-            pg.connect(ac.destination);
-            pop.start(now);
-            pop.stop(now + 0.035);
-          } else if (ch === "i") {
-            playFormantVoice({
-              dur: 0.32,
-              f0Start: 238,
-              f0Peak: 254,
-              f0End: 214,
-              breath: 0.04,
-              att: 0.026,
-              rel: 0.075,
-              gain: 0.8,
-              cutoff: 4600,
-              formants: [
-                [435, 5.8, 1.0],
-                [2320, 8.2, 0.82],
-                [2960, 9.8, 0.4],
-                [3880, 10.5, 0.16],
-              ],
-            });
-          } else if (ch === "n") {
-            playFormantVoice({
-              dur: 0.48,
-              f0Start: 215,
-              f0Peak: 226,
-              f0End: 202,
-              breath: 0.015,
-              att: 0.045,
-              rel: 0.1,
-              gain: 0.88,
-              cutoff: 2900,
-              formants: [
-                [272, 4.8, 1.0],
-                [1450, 6.0, 0.18],
-                [2450, 7.8, 0.16],
-              ],
-            });
-          }
         }
 
         function speakPhonic(ch) {
           if (muted || !hasUserGesture) return;
           if (!LETTERS[ch]) return;
           speakerPulse = 1.0;
-          playPurePhonic(ch);
+          if (window.PhonicsAudio) {
+            window.PhonicsAudio.playLetter(ch);
+          }
         }
 
         function announce(text) {
@@ -976,6 +593,7 @@
 
         let elapsed = 0;
         let celebrateTimer = 0;
+        let currentCueWord = "";
         let guidePhase = 0;
         let strokeLiftGuard = 0;
 
@@ -1156,7 +774,8 @@
         function completeLetter() {
           const letter = getCurrentLetter();
           state = "celebrate";
-          celebrateTimer = 2.3;
+          celebrateTimer = 2.65;
+          currentCueWord = cueCycler.next(letter.char) || letter.cueWord;
           activePointerId = null;
           totalTraced += 1;
           saveTraced(totalTraced);
@@ -1189,10 +808,15 @@
             });
           }
 
-          // Immediately play the letter's phonic sound on completion!
-          speakPhonic(letter.char);
+          // Immediately play the letter's pure British phonic sound followed by cycling cue word!
+          if (window.PhonicsAudio) {
+            speakerPulse = 1.0;
+            window.PhonicsAudio.playLetterThenWord(letter.char, currentCueWord, { gapMs: 160 });
+          } else {
+            speakPhonic(letter.char);
+          }
           playLetterCompleteChime();
-          announce(`Great job tracing ${letter.char}, like ${letter.cueWord}!`);
+          announce(`Great job tracing ${letter.char}, like ${currentCueWord}!`);
         }
 
         function getProgressFraction(letter) {
@@ -1401,6 +1025,7 @@
           e.stopPropagation();
           ensureAudio();
           muted = !muted;
+          if (window.PhonicsAudio) window.PhonicsAudio.setMuted(muted);
           if (muted) cancelSpeech();
           syncHud();
         });
@@ -1799,13 +1424,14 @@
 
         function drawCelebrateIcon(letter, metrics) {
           if (state !== "celebrate") return;
-          const badgeSize = Math.max(66, Math.min(112, Math.min(W, H) * 0.2));
+          const badgeSize = Math.max(76, Math.min(126, Math.min(W, H) * 0.22));
           const isLandscape = W > H * 1.1;
           const bx = isLandscape ? Math.min(W - badgeSize * 0.9, metrics.cx + metrics.scale * 1.05) : metrics.cx;
           const by = isLandscape
             ? metrics.cy
             : Math.min(speakerBtn.cy - speakerBtn.r - badgeSize * 0.62, metrics.cy + metrics.scale * 0.98);
-          const pop = Math.min(1, (2.3 - celebrateTimer) * 5);
+          const pop = Math.min(1, (2.65 - celebrateTimer) * 5);
+          const word = currentCueWord || letter.cueWord;
 
           ctx.save();
           ctx.translate(bx, by);
@@ -1820,12 +1446,13 @@
             letter.fill,
             4
           );
-          drawPixelSprite(letter.char, 0, -badgeSize * 0.08, badgeSize * 0.58);
-          ctx.font = `900 ${Math.max(12, Math.floor(badgeSize * 0.18))}px "Courier New", Courier, monospace`;
+          drawCueSprite(word, 0, -badgeSize * 0.1, badgeSize * 0.54);
+          const fontPx = Math.max(10, Math.floor(badgeSize * (word.length > 6 ? 0.135 : 0.175)));
+          ctx.font = `900 ${fontPx}px "Courier New", Courier, monospace`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillStyle = "#ffe14d";
-          ctx.fillText(letter.cueWord, 0, badgeSize * 0.34);
+          ctx.fillText(word, 0, badgeSize * 0.34);
           ctx.restore();
         }
 

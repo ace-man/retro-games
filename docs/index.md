@@ -15,6 +15,8 @@ Fast lookup map of repository elements modeled as **nodes** and **edges** so LLM
 | `shell:runtime` | `script` | `arcade.js` | Repo detection, GitHub Contents API + `localStorage` caching, dual-section state, metadata parser, previews, play modal |
 | `dir:games` | `directory` | `games/` | Classic retro browser games rendered in the **Retro Arcade** section |
 | `dir:junior-games` | `directory` | `junior-games/` | Toddler-friendly browser games rendered in the **Junior Arcade** section |
+| `dir:junior-audio` | `directory` | `junior-games/audio/phonics/` | Shared British English phonics `.m4a` clips (`letters/`, `words/`) & voice-swap `README.md` |
+| `junior:phonics-audio` | `script` | `junior-games/audio/phonics-audio.js` | Shared Web Audio / HTMLAudio British phonics playback engine + 18 cycling cue-word sprites (`window.PhonicsAudio`) |
 | `doc:index` | `doc` | `docs/index.md` | This graph-style repository index |
 | `doc:overview` | `doc` | `docs/implementation/overview.md` | Thin architecture and cross-file relationship overview |
 | `doc:agents` | `doc` | `AGENTS.md` | Agent workflow rules for using and maintaining `docs/index.md` and `docs/implementation/` |
@@ -35,6 +37,8 @@ shell:runtime --renders-into--> shell:index      (#panel-arcade, #panel-junior, 
 shell:styles  --themes-->      shell:index       (default + body[data-section="junior"])
 dir:games     --contains-->    game:*
 dir:junior-games --contains--> junior:*
+junior:phonics-pop, junior:phonics-trace, junior:word-builder --loads--> junior:phonics-audio
+junior:phonics-audio --plays--> dir:junior-audio
 doc:agents    --governs-->     doc:index
 doc:agents    --governs-->     doc:overview
 skill:retro-standard --governs--> dir:games, dir:junior-games

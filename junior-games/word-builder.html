@@ -214,6 +214,7 @@
       <div id="live-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
     </main>
 
+    <script src="audio/phonics-audio.js"></script>
     <script>
       (() => {
         "use strict";
@@ -720,14 +721,12 @@
         }
 
         // -------------------------------------------------------------------
-        // Audio & Phonics Engine (Pure Web Audio Phonemes + TTS for Whole Words)
+        // British English Phonics Audio Engine (Cached .m4a + Web Audio SFX)
         // -------------------------------------------------------------------
         let audioCtx = null;
         let hasUserGesture = false;
+        let preloaded = false;
         let muted = false;
-        let preferredVoice = null;
-        let noiseBuffer = null;
-        let glottalWave = null;
         let speakerPulse = 0;
         let activeTimers = [];
 
@@ -746,48 +745,15 @@
           if (audioCtx && audioCtx.state === "suspended") {
             audioCtx.resume().catch(() => {});
           }
-        }
-
-        function getNoiseBuffer() {
-          if (!audioCtx) return null;
-          if (noiseBuffer) return noiseBuffer;
-          const len = Math.floor(audioCtx.sampleRate * 0.8);
-          const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
-          const data = buf.getChannelData(0);
-          for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
-          noiseBuffer = buf;
-          return buf;
-        }
-
-        function getGlottalWave() {
-          if (!audioCtx) return null;
-          if (glottalWave) return glottalWave;
-          const n = 36;
-          const real = new Float32Array(n);
-          const imag = new Float32Array(n);
-          for (let k = 1; k < n; k++) {
-            imag[k] = 1 / Math.pow(k, 1.55);
+          if (window.PhonicsAudio) {
+            window.PhonicsAudio.unlock(audioCtx);
+            window.PhonicsAudio.setMuted(muted);
+            if (!preloaded) {
+              preloaded = true;
+              const allWords = STAGES[1].words.concat(STAGES[2].words);
+              window.PhonicsAudio.preload(window.PhonicsAudio.LETTER_LIST, allWords);
+            }
           }
-          glottalWave = audioCtx.createPeriodicWave(real, imag);
-          return glottalWave;
-        }
-
-        function pickVoice() {
-          if (!window.speechSynthesis || typeof window.speechSynthesis.getVoices !== "function") return null;
-          const voices = window.speechSynthesis.getVoices();
-          if (!voices || !voices.length) return null;
-          const en = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith("en"));
-          return (
-            en.find((v) => /samantha|google us english|aria|jenny|karen|moira|tessa/i.test(v.name)) ||
-            en[0] ||
-            voices[0]
-          );
-        }
-
-        if (window.speechSynthesis && typeof window.speechSynthesis.addEventListener === "function") {
-          window.speechSynthesis.addEventListener("voiceschanged", () => {
-            preferredVoice = pickVoice();
-          });
         }
 
         function clearScheduledTimers() {
@@ -804,10 +770,9 @@
         }
 
         function cancelSpeech() {
-          if (!window.speechSynthesis) return;
-          try {
-            window.speechSynthesis.cancel();
-          } catch (_) {}
+          if (window.PhonicsAudio) {
+            window.PhonicsAudio.stop();
+          }
         }
 
         function playTone(f0, f1, dur, type, vol, delay) {
@@ -832,8 +797,8 @@
         }
 
         function playSnapChime() {
-          playTone(523.25, 659.25, 0.11, "triangle", 0.15, 0);
-          playTone(783.99, 783.99, 0.14, "sine", 0.12, 0.06);
+          playTone(523.25, 659.25, 0.11, "triangle", 0.14, 0);
+          playTone(783.99, 783.99, 0.14, "sine", 0.11, 0.06);
         }
 
         function playSoftBoing() {
@@ -844,289 +809,35 @@
         function playBlendFanfare() {
           const notes = [392.0, 523.25, 659.25, 783.99, 1046.5];
           notes.forEach((f, i) => {
-            playTone(f, f, i === notes.length - 1 ? 0.4 : 0.14, "triangle", 0.15, i * 0.085);
+            playTone(f, f, i === notes.length - 1 ? 0.36 : 0.12, "triangle", 0.11, i * 0.085);
           });
         }
 
-        function playFormantVoice(opts) {
-          if (!audioCtx) return;
-          const ac = audioCtx;
-          const now = ac.currentTime;
-          const dur = opts.dur;
-
-          const osc = ac.createOscillator();
-          const wave = getGlottalWave();
-          if (wave) osc.setPeriodicWave(wave);
-          else osc.type = "sawtooth";
-
-          osc.frequency.setValueAtTime(opts.f0Start, now);
-          osc.frequency.linearRampToValueAtTime(opts.f0Peak, now + dur * 0.28);
-          osc.frequency.linearRampToValueAtTime(opts.f0End, now + dur);
-
-          const vib = ac.createOscillator();
-          const vibGain = ac.createGain();
-          vib.frequency.setValueAtTime(5.2, now);
-          vibGain.gain.setValueAtTime(2.2, now);
-          vib.connect(vibGain);
-          vibGain.connect(osc.frequency);
-
-          const srcBus = ac.createGain();
-          srcBus.gain.setValueAtTime(1.0, now);
-          osc.connect(srcBus);
-
-          let breathSrc = null;
-          const nBuf = getNoiseBuffer();
-          if (nBuf && opts.breath > 0) {
-            breathSrc = ac.createBufferSource();
-            breathSrc.buffer = nBuf;
-            const bg = ac.createGain();
-            bg.gain.setValueAtTime(opts.breath, now);
-            breathSrc.connect(bg);
-            bg.connect(srcBus);
-          }
-
-          const formantSum = ac.createGain();
-          formantSum.gain.setValueAtTime(1.0, now);
-          for (const [freq, q, gVal] of opts.formants) {
-            const bp = ac.createBiquadFilter();
-            bp.type = "bandpass";
-            bp.frequency.setValueAtTime(freq, now);
-            bp.Q.setValueAtTime(q, now);
-            const fg = ac.createGain();
-            fg.gain.setValueAtTime(gVal, now);
-            srcBus.connect(bp);
-            bp.connect(fg);
-            fg.connect(formantSum);
-          }
-
-          const lp = ac.createBiquadFilter();
-          lp.type = "lowpass";
-          lp.frequency.setValueAtTime(opts.cutoff || 4600, now);
-
-          const env = ac.createGain();
-          const peak = opts.gain || 0.78;
-          env.gain.setValueAtTime(0.0001, now);
-          env.gain.linearRampToValueAtTime(peak, now + opts.att);
-          env.gain.setValueAtTime(peak * 0.94, now + dur - opts.rel);
-          env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-
-          formantSum.connect(lp);
-          lp.connect(env);
-          env.connect(ac.destination);
-
-          osc.start(now);
-          vib.start(now);
-          if (breathSrc) breathSrc.start(now);
-          osc.stop(now + dur + 0.03);
-          vib.stop(now + dur + 0.03);
-          if (breathSrc) breathSrc.stop(now + dur + 0.03);
-        }
-
-        function playPurePhonic(ch) {
-          if (muted || !hasUserGesture) return;
-          ensureAudio();
-          if (!audioCtx) return;
-          const ac = audioCtx;
-          const now = ac.currentTime;
-
-          if (ch === "s") {
-            const buf = getNoiseBuffer();
-            if (!buf) return;
-            const dur = 0.56;
-            const src = ac.createBufferSource();
-            src.buffer = buf;
-            const hp = ac.createBiquadFilter();
-            hp.type = "highpass";
-            hp.frequency.setValueAtTime(4200, now);
-            hp.Q.setValueAtTime(0.8, now);
-
-            const b1 = ac.createBiquadFilter();
-            b1.type = "bandpass";
-            b1.frequency.setValueAtTime(5500, now);
-            b1.Q.setValueAtTime(2.2, now);
-            const g1 = ac.createGain();
-            g1.gain.setValueAtTime(1.0, now);
-
-            const b2 = ac.createBiquadFilter();
-            b2.type = "bandpass";
-            b2.frequency.setValueAtTime(7600, now);
-            b2.Q.setValueAtTime(2.0, now);
-            const g2 = ac.createGain();
-            g2.gain.setValueAtTime(0.75, now);
-
-            const env = ac.createGain();
-            env.gain.setValueAtTime(0.0001, now);
-            env.gain.linearRampToValueAtTime(0.46, now + 0.06);
-            env.gain.setValueAtTime(0.42, now + dur - 0.14);
-            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-
-            src.connect(hp);
-            hp.connect(b1);
-            hp.connect(b2);
-            b1.connect(g1);
-            b2.connect(g2);
-            g1.connect(env);
-            g2.connect(env);
-            env.connect(ac.destination);
-            src.start(now);
-            src.stop(now + dur + 0.03);
-          } else if (ch === "a") {
-            playFormantVoice({
-              dur: 0.36,
-              f0Start: 232,
-              f0Peak: 248,
-              f0End: 206,
-              breath: 0.05,
-              att: 0.03,
-              rel: 0.08,
-              gain: 0.82,
-              cutoff: 4600,
-              formants: [
-                [700, 5.2, 1.0],
-                [1960, 7.6, 0.92],
-                [2820, 9.5, 0.44],
-                [3820, 10.5, 0.2],
-              ],
-            });
-          } else if (ch === "t") {
-            const buf = getNoiseBuffer();
-            if (!buf) return;
-            const dur = 0.11;
-            const src = ac.createBufferSource();
-            src.buffer = buf;
-
-            const b1 = ac.createBiquadFilter();
-            b1.type = "bandpass";
-            b1.frequency.setValueAtTime(4200, now);
-            b1.Q.setValueAtTime(1.8, now);
-
-            const b2 = ac.createBiquadFilter();
-            b2.type = "bandpass";
-            b2.frequency.setValueAtTime(6600, now);
-            b2.Q.setValueAtTime(2.2, now);
-
-            const env = ac.createGain();
-            env.gain.setValueAtTime(0.0001, now);
-            env.gain.linearRampToValueAtTime(0.9, now + 0.004);
-            env.gain.exponentialRampToValueAtTime(0.28, now + 0.022);
-            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-
-            src.connect(b1);
-            src.connect(b2);
-            b1.connect(env);
-            b2.connect(env);
-            env.connect(ac.destination);
-            src.start(now);
-            src.stop(now + dur + 0.02);
-          } else if (ch === "p") {
-            const buf = getNoiseBuffer();
-            if (!buf) return;
-            const dur = 0.12;
-            const src = ac.createBufferSource();
-            src.buffer = buf;
-
-            const b1 = ac.createBiquadFilter();
-            b1.type = "bandpass";
-            b1.frequency.setValueAtTime(780, now);
-            b1.frequency.exponentialRampToValueAtTime(460, now + dur);
-            b1.Q.setValueAtTime(1.0, now);
-
-            const b2 = ac.createBiquadFilter();
-            b2.type = "bandpass";
-            b2.frequency.setValueAtTime(1850, now);
-            b2.Q.setValueAtTime(1.2, now);
-            const g2 = ac.createGain();
-            g2.gain.setValueAtTime(0.55, now);
-
-            const env = ac.createGain();
-            env.gain.setValueAtTime(0.0001, now);
-            env.gain.linearRampToValueAtTime(0.85, now + 0.006);
-            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-
-            src.connect(b1);
-            src.connect(b2);
-            b1.connect(env);
-            b2.connect(g2);
-            g2.connect(env);
-            env.connect(ac.destination);
-            src.start(now);
-            src.stop(now + dur + 0.02);
-
-            const pop = ac.createOscillator();
-            const pg = ac.createGain();
-            pop.type = "sine";
-            pop.frequency.setValueAtTime(240, now);
-            pop.frequency.exponentialRampToValueAtTime(115, now + 0.026);
-            pg.gain.setValueAtTime(0.0001, now);
-            pg.gain.linearRampToValueAtTime(0.24, now + 0.004);
-            pg.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
-            pop.connect(pg);
-            pg.connect(ac.destination);
-            pop.start(now);
-            pop.stop(now + 0.035);
-          } else if (ch === "i") {
-            playFormantVoice({
-              dur: 0.32,
-              f0Start: 238,
-              f0Peak: 254,
-              f0End: 214,
-              breath: 0.04,
-              att: 0.026,
-              rel: 0.075,
-              gain: 0.8,
-              cutoff: 4600,
-              formants: [
-                [435, 5.8, 1.0],
-                [2320, 8.2, 0.82],
-                [2960, 9.8, 0.4],
-                [3880, 10.5, 0.16],
-              ],
-            });
-          } else if (ch === "n") {
-            playFormantVoice({
-              dur: 0.48,
-              f0Start: 215,
-              f0Peak: 226,
-              f0End: 202,
-              breath: 0.015,
-              att: 0.045,
-              rel: 0.1,
-              gain: 0.88,
-              cutoff: 2900,
-              formants: [
-                [272, 4.8, 1.0],
-                [1450, 6.0, 0.18],
-                [2450, 7.8, 0.16],
-              ],
-            });
-          }
-        }
-
-        function speakPhonic(ch) {
-          if (muted || !hasUserGesture) return;
-          if (!LETTER_META[ch]) return;
-          cancelSpeech();
-          playPurePhonic(ch);
-        }
-
-        function speakWord(word) {
-          if (muted || !hasUserGesture) return;
-          speakerPulse = 1.0;
-          if (!("speechSynthesis" in window) || typeof window.SpeechSynthesisUtterance !== "function") {
-            playSnapChime();
+        function speakPhonic(ch, opts) {
+          if (muted || !hasUserGesture) {
+            if (opts && typeof opts.onEnded === "function") opts.onEnded();
             return;
           }
-          try {
-            window.speechSynthesis.cancel();
-            const u = new SpeechSynthesisUtterance(word);
-            if (!preferredVoice) preferredVoice = pickVoice();
-            if (preferredVoice) u.voice = preferredVoice;
-            u.lang = (preferredVoice && preferredVoice.lang) || "en-US";
-            u.rate = 0.86;
-            u.pitch = 1.12;
-            u.volume = 1.0;
-            window.speechSynthesis.speak(u);
-          } catch (_) {}
+          if (!LETTER_META[ch]) return;
+          if (window.PhonicsAudio) {
+            window.PhonicsAudio.playLetter(ch, opts);
+          } else if (opts && typeof opts.onEnded === "function") {
+            opts.onEnded();
+          }
+        }
+
+        function speakWord(word, opts) {
+          if (muted || !hasUserGesture) {
+            if (opts && typeof opts.onEnded === "function") opts.onEnded();
+            return;
+          }
+          speakerPulse = 1.0;
+          if (window.PhonicsAudio) {
+            window.PhonicsAudio.playWord(word, opts);
+          } else {
+            playSnapChime();
+            if (opts && typeof opts.onEnded === "function") opts.onEnded();
+          }
         }
 
         function announce(text) {
@@ -1441,28 +1152,8 @@
           saveWordsCount(wordsBuilt);
 
           const letters = currentWord.split("");
-          const stepMs = 540;
 
-          // Step 1: Highlight each tile sequentially left-to-right & play its phonic sound
-          letters.forEach((ch, idx) => {
-            schedule(() => {
-              if (state !== "blending") return;
-              blendHighlightIdx = idx;
-              const sl = slots[idx];
-              if (sl) {
-                sl.blendPulse = 1.0;
-                const cx = sl.x + sl.size / 2;
-                const cy = sl.y + sl.size / 2;
-                spawnSparkles(cx, cy, LETTER_META[ch].fill, 12);
-                rings.push({ x: cx, y: cy, r: sl.size * 0.35, maxR: sl.size * 1.1, alpha: 1, color: "#ffe14d" });
-              }
-              speakPhonic(ch);
-            }, 260 + idx * stepMs);
-          });
-
-          // Step 2: Sweep glowing arcade beam across the whole word & speak blended word!
-          const beamStartMs = 260 + letters.length * stepMs + 220;
-          schedule(() => {
+          const playSweepAndWord = () => {
             if (state !== "blending") return;
             blendHighlightIdx = -1;
             beamActive = true;
@@ -1478,14 +1169,47 @@
               spawnSparkles(sl.x + sl.size / 2, sl.y + sl.size / 2, "#38d9ff", 10);
             });
             announce(`Hooray! ${currentWord}!`);
-          }, beamStartMs);
 
-          // Step 3: Smoothly advance to the next word
-          schedule(() => {
-            if (state === "blending") {
-              loadWord(wordIdx + 1, true);
+            // Smoothly advance to the next word
+            schedule(() => {
+              if (state === "blending") {
+                loadWord(wordIdx + 1, true);
+              }
+            }, 2050);
+          };
+
+          // Step 1: Highlight each tile sequentially left-to-right & play its pure British phonic sound
+          const playLetterStep = (idx) => {
+            if (state !== "blending") return;
+            if (idx >= letters.length) {
+              schedule(playSweepAndWord, 190);
+              return;
             }
-          }, beamStartMs + 2100);
+            const ch = letters[idx];
+            blendHighlightIdx = idx;
+            const sl = slots[idx];
+            if (sl) {
+              sl.blendPulse = 1.0;
+              const cx = sl.x + sl.size / 2;
+              const cy = sl.y + sl.size / 2;
+              spawnSparkles(cx, cy, LETTER_META[ch].fill, 12);
+              rings.push({ x: cx, y: cy, r: sl.size * 0.35, maxR: sl.size * 1.1, alpha: 1, color: "#ffe14d" });
+            }
+            const startedAt = performance.now();
+            let advanced = false;
+            const goNext = () => {
+              if (advanced || state !== "blending") return;
+              advanced = true;
+              const elapsedMs = performance.now() - startedAt;
+              const delay = Math.max(150, 380 - elapsedMs);
+              schedule(() => playLetterStep(idx + 1), delay);
+            };
+            speakPhonic(ch, { onEnded: goNext });
+            // Safety timer in case an audio clip fails to fire onended
+            schedule(goNext, 1100);
+          };
+
+          schedule(() => playLetterStep(0), 260);
         }
 
         // -------------------------------------------------------------------
@@ -1718,6 +1442,7 @@
           e.stopPropagation();
           ensureAudio();
           muted = !muted;
+          if (window.PhonicsAudio) window.PhonicsAudio.setMuted(muted);
           if (muted) cancelSpeech();
           syncHud();
         });
