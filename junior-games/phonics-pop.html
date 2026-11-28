@@ -236,10 +236,6 @@
             glow: "#a8ffbf",
             rim: "#e4ffec",
             ink: "#0b2416",
-            tts: "ssssss",
-            rate: 0.76,
-            pitch: 1.12,
-            vol: 0.88,
           },
           a: {
             char: "a",
@@ -248,10 +244,6 @@
             glow: "#ffa6d2",
             rim: "#ffe0f0",
             ink: "#2a081b",
-            tts: "ah",
-            rate: 1.02,
-            pitch: 1.16,
-            vol: 0.96,
           },
           t: {
             char: "t",
@@ -260,10 +252,6 @@
             glow: "#a3efff",
             rim: "#e3faff",
             ink: "#07222e",
-            tts: "tuh",
-            rate: 1.48,
-            pitch: 1.12,
-            vol: 0.52,
           },
           p: {
             char: "p",
@@ -272,10 +260,6 @@
             glow: "#fff2a6",
             rim: "#fffbe0",
             ink: "#2b2004",
-            tts: "puh",
-            rate: 1.48,
-            pitch: 1.08,
-            vol: 0.52,
           },
           i: {
             char: "i",
@@ -284,10 +268,6 @@
             glow: "#ddc2ff",
             rim: "#f5ebff",
             ink: "#1c0b33",
-            tts: "ih",
-            rate: 1.0,
-            pitch: 1.18,
-            vol: 0.96,
           },
           n: {
             char: "n",
@@ -296,10 +276,6 @@
             glow: "#ffd19e",
             rim: "#fff2e3",
             ink: "#2b1404",
-            tts: "nuh",
-            rate: 1.24,
-            pitch: 1.08,
-            vol: 0.54,
           },
         };
 
@@ -587,15 +563,15 @@
         }
 
         // -------------------------------------------------------------------
-        // Web Audio & Phonics Sound Engine (Pure Letter Sounds)
+        // Web Audio Vocal-Tract & Consonant Phonics Engine (Pure Letter Sounds)
         // -------------------------------------------------------------------
         let audioCtx = null;
         let hasUserGesture = false;
         let muted = false;
-        let preferredVoice = null;
         let speechTimer = null;
         let speakerPulse = 0;
         let noiseBuffer = null;
+        let glottalWave = null;
 
         const NOTES = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99];
         let noteIdx = 0;
@@ -620,7 +596,7 @@
         function getNoiseBuffer() {
           if (!audioCtx) return null;
           if (noiseBuffer) return noiseBuffer;
-          const len = Math.floor(audioCtx.sampleRate * 0.7);
+          const len = Math.floor(audioCtx.sampleRate * 0.8);
           const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
           const data = buf.getChannelData(0);
           for (let i = 0; i < len; i++) {
@@ -630,22 +606,18 @@
           return noiseBuffer;
         }
 
-        function pickVoice() {
-          if (!window.speechSynthesis || typeof window.speechSynthesis.getVoices !== "function") return null;
-          const voices = window.speechSynthesis.getVoices();
-          if (!voices || !voices.length) return null;
-          const en = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith("en"));
-          return (
-            en.find((v) => /samantha|google us english|aria|jenny|karen|moira|tessa/i.test(v.name)) ||
-            en[0] ||
-            voices[0]
-          );
-        }
-
-        if (window.speechSynthesis && typeof window.speechSynthesis.addEventListener === "function") {
-          window.speechSynthesis.addEventListener("voiceschanged", () => {
-            preferredVoice = pickVoice();
-          });
+        // Rosenberg-style glottal pulse wave (warm -12 dB/oct human vocal tilt)
+        function getGlottalWave() {
+          if (!audioCtx) return null;
+          if (glottalWave) return glottalWave;
+          const n = 36;
+          const real = new Float32Array(n);
+          const imag = new Float32Array(n);
+          for (let k = 1; k < n; k++) {
+            imag[k] = 1 / Math.pow(k, 1.55);
+          }
+          glottalWave = audioCtx.createPeriodicWave(real, imag);
+          return glottalWave;
         }
 
         function cancelSpeech() {
@@ -653,138 +625,290 @@
             clearTimeout(speechTimer);
             speechTimer = null;
           }
-          if (!window.speechSynthesis) return;
-          try {
-            window.speechSynthesis.cancel();
-          } catch (_) {}
         }
 
-        // Synthesized phonetic acoustics that layer cleanly with TTS and act as fallback
-        function playPhonemeSynth(ch, soft) {
-          if (muted || !hasUserGesture || !audioCtx) return;
+        function playFormantVoice(opts, gainScale) {
+          if (!audioCtx) return;
           const ac = audioCtx;
           const now = ac.currentTime;
-          const gainScale = soft ? 0.65 : 1.0;
+          const dur = opts.dur;
+
+          // Glottal voice source with natural pitch inflection & subtle micro-vibrato
+          const osc = ac.createOscillator();
+          const wave = getGlottalWave();
+          if (wave) osc.setPeriodicWave(wave);
+          else osc.type = "sawtooth";
+
+          osc.frequency.setValueAtTime(opts.f0Start, now);
+          osc.frequency.linearRampToValueAtTime(opts.f0Peak, now + dur * 0.28);
+          osc.frequency.linearRampToValueAtTime(opts.f0End, now + dur);
+
+          const vib = ac.createOscillator();
+          const vibGain = ac.createGain();
+          vib.frequency.setValueAtTime(5.2, now);
+          vibGain.gain.setValueAtTime(2.2, now);
+          vib.connect(vibGain);
+          vibGain.connect(osc.frequency);
+
+          // Mix source + tiny natural breath aspiration
+          const srcBus = ac.createGain();
+          srcBus.gain.setValueAtTime(1.0, now);
+          osc.connect(srcBus);
+
+          let breathSrc = null;
+          const nBuf = getNoiseBuffer();
+          if (nBuf && opts.breath > 0) {
+            breathSrc = ac.createBufferSource();
+            breathSrc.buffer = nBuf;
+            const bg = ac.createGain();
+            bg.gain.setValueAtTime(opts.breath, now);
+            breathSrc.connect(bg);
+            bg.connect(srcBus);
+          }
+
+          // Parallel vocal-tract formant resonators
+          const formantSum = ac.createGain();
+          formantSum.gain.setValueAtTime(1.0, now);
+          for (const [freq, q, gVal] of opts.formants) {
+            const bp = ac.createBiquadFilter();
+            bp.type = "bandpass";
+            bp.frequency.setValueAtTime(freq, now);
+            bp.Q.setValueAtTime(q, now);
+            const fg = ac.createGain();
+            fg.gain.setValueAtTime(gVal, now);
+            srcBus.connect(bp);
+            bp.connect(fg);
+            fg.connect(formantSum);
+          }
+
+          const lp = ac.createBiquadFilter();
+          lp.type = "lowpass";
+          lp.frequency.setValueAtTime(opts.cutoff || 4600, now);
+
+          const env = ac.createGain();
+          const peak = (opts.gain || 0.75) * gainScale;
+          env.gain.setValueAtTime(0.0001, now);
+          env.gain.linearRampToValueAtTime(peak, now + opts.att);
+          env.gain.setValueAtTime(peak * 0.94, now + dur - opts.rel);
+          env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+
+          formantSum.connect(lp);
+          lp.connect(env);
+          env.connect(ac.destination);
+
+          osc.start(now);
+          vib.start(now);
+          if (breathSrc) breathSrc.start(now);
+          osc.stop(now + dur + 0.03);
+          vib.stop(now + dur + 0.03);
+          if (breathSrc) breathSrc.stop(now + dur + 0.03);
+        }
+
+        function playPurePhonic(ch, soft) {
+          if (muted || !hasUserGesture) return;
+          ensureAudio();
+          if (!audioCtx) return;
+          const ac = audioCtx;
+          const now = ac.currentTime;
+          const gs = soft ? 0.6 : 1.0;
 
           if (ch === "s") {
-            // Pure continuous airy sibilant "ssss"
+            // Pure continuous human-like sibilant "ssss" (never "ess")
             const buf = getNoiseBuffer();
             if (!buf) return;
+            const dur = 0.56;
             const src = ac.createBufferSource();
             src.buffer = buf;
             const hp = ac.createBiquadFilter();
             hp.type = "highpass";
             hp.frequency.setValueAtTime(4200, now);
-            const bp = ac.createBiquadFilter();
-            bp.type = "bandpass";
-            bp.frequency.setValueAtTime(6000, now);
-            bp.Q.setValueAtTime(1.4, now);
-            const g = ac.createGain();
-            g.gain.setValueAtTime(0.0001, now);
-            g.gain.linearRampToValueAtTime(0.14 * gainScale, now + 0.05);
-            g.gain.setValueAtTime(0.13 * gainScale, now + 0.34);
-            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
+            hp.Q.setValueAtTime(0.8, now);
+
+            const b1 = ac.createBiquadFilter();
+            b1.type = "bandpass";
+            b1.frequency.setValueAtTime(5500, now);
+            b1.Q.setValueAtTime(2.2, now);
+            const g1 = ac.createGain();
+            g1.gain.setValueAtTime(1.0, now);
+
+            const b2 = ac.createBiquadFilter();
+            b2.type = "bandpass";
+            b2.frequency.setValueAtTime(7600, now);
+            b2.Q.setValueAtTime(2.0, now);
+            const g2 = ac.createGain();
+            g2.gain.setValueAtTime(0.75, now);
+
+            const env = ac.createGain();
+            env.gain.setValueAtTime(0.0001, now);
+            env.gain.linearRampToValueAtTime(0.46 * gs, now + 0.06);
+            env.gain.setValueAtTime(0.42 * gs, now + dur - 0.14);
+            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+
             src.connect(hp);
-            hp.connect(bp);
-            bp.connect(g);
-            g.connect(ac.destination);
+            hp.connect(b1);
+            hp.connect(b2);
+            b1.connect(g1);
+            b2.connect(g2);
+            g1.connect(env);
+            g2.connect(env);
+            env.connect(ac.destination);
             src.start(now);
-            src.stop(now + 0.5);
+            src.stop(now + dur + 0.03);
+          } else if (ch === "a") {
+            // Pure short /æ/ as in "apple" / "ant" (never "aah" or "ay")
+            playFormantVoice(
+              {
+                dur: 0.36,
+                f0Start: 232,
+                f0Peak: 248,
+                f0End: 206,
+                breath: 0.05,
+                att: 0.03,
+                rel: 0.08,
+                gain: 0.82,
+                cutoff: 4600,
+                formants: [
+                  [700, 5.2, 1.0],
+                  [1960, 7.6, 0.92],
+                  [2820, 9.5, 0.44],
+                  [3820, 10.5, 0.2],
+                ],
+              },
+              gs
+            );
           } else if (ch === "t") {
-            // Crisp unvoiced alveolar burst "t"
+            // Crisp unvoiced alveolar stop "t" (no "tuh", no "tee")
             const buf = getNoiseBuffer();
             if (!buf) return;
+            const dur = 0.11;
             const src = ac.createBufferSource();
             src.buffer = buf;
-            const hp = ac.createBiquadFilter();
-            hp.type = "bandpass";
-            hp.frequency.setValueAtTime(4600, now);
-            hp.Q.setValueAtTime(1.8, now);
-            const g = ac.createGain();
-            g.gain.setValueAtTime(0.0001, now);
-            g.gain.linearRampToValueAtTime(0.24 * gainScale, now + 0.006);
-            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
-            src.connect(hp);
-            hp.connect(g);
-            g.connect(ac.destination);
+
+            const b1 = ac.createBiquadFilter();
+            b1.type = "bandpass";
+            b1.frequency.setValueAtTime(4200, now);
+            b1.Q.setValueAtTime(1.8, now);
+
+            const b2 = ac.createBiquadFilter();
+            b2.type = "bandpass";
+            b2.frequency.setValueAtTime(6600, now);
+            b2.Q.setValueAtTime(2.2, now);
+
+            const env = ac.createGain();
+            env.gain.setValueAtTime(0.0001, now);
+            env.gain.linearRampToValueAtTime(0.9 * gs, now + 0.004);
+            env.gain.exponentialRampToValueAtTime(0.28 * gs, now + 0.022);
+            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+
+            src.connect(b1);
+            src.connect(b2);
+            b1.connect(env);
+            b2.connect(env);
+            env.connect(ac.destination);
             src.start(now);
-            src.stop(now + 0.065);
+            src.stop(now + dur + 0.02);
           } else if (ch === "p") {
-            // Crisp unvoiced bilabial puff "p"
+            // Crisp unvoiced bilabial puff "p" (no "puh", no "pee")
             const buf = getNoiseBuffer();
             if (!buf) return;
+            const dur = 0.12;
             const src = ac.createBufferSource();
             src.buffer = buf;
-            const bp = ac.createBiquadFilter();
-            bp.type = "bandpass";
-            bp.frequency.setValueAtTime(950, now);
-            bp.frequency.exponentialRampToValueAtTime(420, now + 0.06);
-            bp.Q.setValueAtTime(1.2, now);
-            const g = ac.createGain();
-            g.gain.setValueAtTime(0.0001, now);
-            g.gain.linearRampToValueAtTime(0.26 * gainScale, now + 0.008);
-            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.068);
-            src.connect(bp);
-            bp.connect(g);
-            g.connect(ac.destination);
+
+            const b1 = ac.createBiquadFilter();
+            b1.type = "bandpass";
+            b1.frequency.setValueAtTime(780, now);
+            b1.frequency.exponentialRampToValueAtTime(460, now + dur);
+            b1.Q.setValueAtTime(1.0, now);
+
+            const b2 = ac.createBiquadFilter();
+            b2.type = "bandpass";
+            b2.frequency.setValueAtTime(1850, now);
+            b2.Q.setValueAtTime(1.2, now);
+            const g2 = ac.createGain();
+            g2.gain.setValueAtTime(0.55, now);
+
+            const env = ac.createGain();
+            env.gain.setValueAtTime(0.0001, now);
+            env.gain.linearRampToValueAtTime(0.85 * gs, now + 0.006);
+            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+
+            src.connect(b1);
+            src.connect(b2);
+            b1.connect(env);
+            b2.connect(g2);
+            g2.connect(env);
+            env.connect(ac.destination);
             src.start(now);
-            src.stop(now + 0.08);
+            src.stop(now + dur + 0.02);
+
+            // Soft lip-release thump
+            const pop = ac.createOscillator();
+            const pg = ac.createGain();
+            pop.type = "sine";
+            pop.frequency.setValueAtTime(240, now);
+            pop.frequency.exponentialRampToValueAtTime(115, now + 0.026);
+            pg.gain.setValueAtTime(0.0001, now);
+            pg.gain.linearRampToValueAtTime(0.24 * gs, now + 0.004);
+            pg.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+            pop.connect(pg);
+            pg.connect(ac.destination);
+            pop.start(now);
+            pop.stop(now + 0.035);
+          } else if (ch === "i") {
+            // Pure short /ɪ/ as in "igloo" / "in" (never "eye")
+            playFormantVoice(
+              {
+                dur: 0.32,
+                f0Start: 238,
+                f0Peak: 254,
+                f0End: 214,
+                breath: 0.04,
+                att: 0.026,
+                rel: 0.075,
+                gain: 0.8,
+                cutoff: 4600,
+                formants: [
+                  [435, 5.8, 1.0],
+                  [2320, 8.2, 0.82],
+                  [2960, 9.8, 0.4],
+                  [3880, 10.5, 0.16],
+                ],
+              },
+              gs
+            );
           } else if (ch === "n") {
-            // Warm continuous voiced nasal hum "nnnn"
-            const osc = ac.createOscillator();
-            const sub = ac.createOscillator();
-            osc.type = "triangle";
-            sub.type = "sine";
-            osc.frequency.setValueAtTime(220, now);
-            sub.frequency.setValueAtTime(220, now);
-            const lp = ac.createBiquadFilter();
-            lp.type = "lowpass";
-            lp.frequency.setValueAtTime(520, now);
-            const g = ac.createGain();
-            g.gain.setValueAtTime(0.0001, now);
-            g.gain.linearRampToValueAtTime(0.14 * gainScale, now + 0.04);
-            g.gain.setValueAtTime(0.12 * gainScale, now + 0.28);
-            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
-            osc.connect(lp);
-            sub.connect(lp);
-            lp.connect(g);
-            g.connect(ac.destination);
-            osc.start(now);
-            sub.start(now);
-            osc.stop(now + 0.44);
-            sub.stop(now + 0.44);
-          } else {
-            // Gentle chime fallback for vowels if TTS is absent
-            if (!window.speechSynthesis) {
-              playTone(ch === "a" ? 440 : 587.33, ch === "a" ? 460 : 620, 0.18, "triangle", 0.14 * gainScale, 0);
-            }
+            // Pure continuous voiced nasal "nnnn" (never "en" or "nuh")
+            playFormantVoice(
+              {
+                dur: 0.48,
+                f0Start: 215,
+                f0Peak: 226,
+                f0End: 202,
+                breath: 0.015,
+                att: 0.045,
+                rel: 0.1,
+                gain: 0.88,
+                cutoff: 2900,
+                formants: [
+                  [272, 4.8, 1.0],
+                  [1450, 6.0, 0.18],
+                  [2450, 7.8, 0.16],
+                ],
+              },
+              gs
+            );
           }
         }
 
         function speakPhonic(ch, opts) {
           if (muted || !hasUserGesture) return;
-          const meta = LETTER_META[ch];
-          if (!meta) return;
+          if (!LETTER_META[ch]) return;
           const soft = !!(opts && opts.soft);
           if (!soft) {
             speakerPulse = 1.0;
           }
-          playPhonemeSynth(ch, soft);
-
-          if (!("speechSynthesis" in window) || typeof window.SpeechSynthesisUtterance !== "function") {
-            return;
-          }
-          try {
-            window.speechSynthesis.cancel();
-            const u = new SpeechSynthesisUtterance(meta.tts);
-            if (!preferredVoice) preferredVoice = pickVoice();
-            if (preferredVoice) u.voice = preferredVoice;
-            u.lang = (preferredVoice && preferredVoice.lang) || "en-US";
-            u.rate = meta.rate;
-            u.pitch = meta.pitch;
-            u.volume = soft ? Math.max(0.32, meta.vol * 0.65) : meta.vol;
-            window.speechSynthesis.speak(u);
-          } catch (_) {}
+          playPurePhonic(ch, soft);
         }
 
         function playTone(f0, f1, dur, type, vol, delay) {

@@ -291,10 +291,6 @@
             fill: "#3fe070",
             glow: "#a8ffbf",
             rim: "#e4ffec",
-            tts: "ssssss",
-            rate: 0.76,
-            pitch: 1.12,
-            vol: 0.88,
             strokes: [
               {
                 pts: resamplePath([
@@ -311,10 +307,6 @@
             fill: "#ff5ca8",
             glow: "#ffa6d2",
             rim: "#ffe0f0",
-            tts: "ah",
-            rate: 1.02,
-            pitch: 1.16,
-            vol: 0.96,
             strokes: [
               // Stroke 1: single-story round belly (counter-clockwise from top-right)
               {
@@ -332,10 +324,6 @@
             fill: "#38d9ff",
             glow: "#a3efff",
             rim: "#e3faff",
-            tts: "tuh",
-            rate: 1.48,
-            pitch: 1.12,
-            vol: 0.52,
             strokes: [
               // Stroke 1: top-to-bottom stem with gentle bottom curve
               {
@@ -357,10 +345,6 @@
             fill: "#ffe14d",
             glow: "#fff2a6",
             rim: "#fffbe0",
-            tts: "puh",
-            rate: 1.48,
-            pitch: 1.08,
-            vol: 0.52,
             strokes: [
               // Stroke 1: down-stem with descender
               {
@@ -378,10 +362,6 @@
             fill: "#b57bff",
             glow: "#ddc2ff",
             rim: "#f5ebff",
-            tts: "ih",
-            rate: 1.0,
-            pitch: 1.18,
-            vol: 0.96,
             strokes: [
               // Stroke 1: top-to-bottom short stem
               {
@@ -400,10 +380,6 @@
             fill: "#ff9f43",
             glow: "#ffd19e",
             rim: "#fff2e3",
-            tts: "nuh",
-            rate: 1.24,
-            pitch: 1.08,
-            vol: 0.54,
             strokes: [
               // Stroke 1: top-to-bottom left stem
               {
@@ -614,13 +590,13 @@
         }
 
         // -------------------------------------------------------------------
-        // Audio & Phonics Engine
+        // Web Audio Vocal-Tract & Consonant Phonics Engine (Pure Letter Sounds)
         // -------------------------------------------------------------------
         let audioCtx = null;
         let hasUserGesture = false;
         let muted = false;
-        let preferredVoice = null;
         let noiseBuffer = null;
+        let glottalWave = null;
         let speakerPulse = 0;
         let lastSparkleTime = 0;
 
@@ -646,7 +622,7 @@
         function getNoiseBuffer() {
           if (!audioCtx) return null;
           if (noiseBuffer) return noiseBuffer;
-          const len = Math.floor(audioCtx.sampleRate * 0.7);
+          const len = Math.floor(audioCtx.sampleRate * 0.8);
           const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
           const data = buf.getChannelData(0);
           for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
@@ -654,22 +630,17 @@
           return buf;
         }
 
-        function pickVoice() {
-          if (!window.speechSynthesis || typeof window.speechSynthesis.getVoices !== "function") return null;
-          const voices = window.speechSynthesis.getVoices();
-          if (!voices || !voices.length) return null;
-          const en = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith("en"));
-          return (
-            en.find((v) => /samantha|google us english|aria|jenny|karen|moira|tessa/i.test(v.name)) ||
-            en[0] ||
-            voices[0]
-          );
-        }
-
-        if (window.speechSynthesis && typeof window.speechSynthesis.addEventListener === "function") {
-          window.speechSynthesis.addEventListener("voiceschanged", () => {
-            preferredVoice = pickVoice();
-          });
+        function getGlottalWave() {
+          if (!audioCtx) return null;
+          if (glottalWave) return glottalWave;
+          const n = 36;
+          const real = new Float32Array(n);
+          const imag = new Float32Array(n);
+          for (let k = 1; k < n; k++) {
+            imag[k] = 1 / Math.pow(k, 1.55);
+          }
+          glottalWave = audioCtx.createPeriodicWave(real, imag);
+          return glottalWave;
         }
 
         function cancelSpeech() {
@@ -718,118 +689,265 @@
           });
         }
 
-        function playPhonemeSynth(ch) {
-          if (muted || !hasUserGesture || !audioCtx) return;
+        function playFormantVoice(opts) {
+          if (!audioCtx) return;
+          const ac = audioCtx;
+          const now = ac.currentTime;
+          const dur = opts.dur;
+
+          const osc = ac.createOscillator();
+          const wave = getGlottalWave();
+          if (wave) osc.setPeriodicWave(wave);
+          else osc.type = "sawtooth";
+
+          osc.frequency.setValueAtTime(opts.f0Start, now);
+          osc.frequency.linearRampToValueAtTime(opts.f0Peak, now + dur * 0.28);
+          osc.frequency.linearRampToValueAtTime(opts.f0End, now + dur);
+
+          const vib = ac.createOscillator();
+          const vibGain = ac.createGain();
+          vib.frequency.setValueAtTime(5.2, now);
+          vibGain.gain.setValueAtTime(2.2, now);
+          vib.connect(vibGain);
+          vibGain.connect(osc.frequency);
+
+          const srcBus = ac.createGain();
+          srcBus.gain.setValueAtTime(1.0, now);
+          osc.connect(srcBus);
+
+          let breathSrc = null;
+          const nBuf = getNoiseBuffer();
+          if (nBuf && opts.breath > 0) {
+            breathSrc = ac.createBufferSource();
+            breathSrc.buffer = nBuf;
+            const bg = ac.createGain();
+            bg.gain.setValueAtTime(opts.breath, now);
+            breathSrc.connect(bg);
+            bg.connect(srcBus);
+          }
+
+          const formantSum = ac.createGain();
+          formantSum.gain.setValueAtTime(1.0, now);
+          for (const [freq, q, gVal] of opts.formants) {
+            const bp = ac.createBiquadFilter();
+            bp.type = "bandpass";
+            bp.frequency.setValueAtTime(freq, now);
+            bp.Q.setValueAtTime(q, now);
+            const fg = ac.createGain();
+            fg.gain.setValueAtTime(gVal, now);
+            srcBus.connect(bp);
+            bp.connect(fg);
+            fg.connect(formantSum);
+          }
+
+          const lp = ac.createBiquadFilter();
+          lp.type = "lowpass";
+          lp.frequency.setValueAtTime(opts.cutoff || 4600, now);
+
+          const env = ac.createGain();
+          const peak = opts.gain || 0.78;
+          env.gain.setValueAtTime(0.0001, now);
+          env.gain.linearRampToValueAtTime(peak, now + opts.att);
+          env.gain.setValueAtTime(peak * 0.94, now + dur - opts.rel);
+          env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+
+          formantSum.connect(lp);
+          lp.connect(env);
+          env.connect(ac.destination);
+
+          osc.start(now);
+          vib.start(now);
+          if (breathSrc) breathSrc.start(now);
+          osc.stop(now + dur + 0.03);
+          vib.stop(now + dur + 0.03);
+          if (breathSrc) breathSrc.stop(now + dur + 0.03);
+        }
+
+        function playPurePhonic(ch) {
+          if (muted || !hasUserGesture) return;
+          ensureAudio();
+          if (!audioCtx) return;
           const ac = audioCtx;
           const now = ac.currentTime;
 
           if (ch === "s") {
             const buf = getNoiseBuffer();
             if (!buf) return;
+            const dur = 0.56;
             const src = ac.createBufferSource();
             src.buffer = buf;
             const hp = ac.createBiquadFilter();
             hp.type = "highpass";
             hp.frequency.setValueAtTime(4200, now);
-            const bp = ac.createBiquadFilter();
-            bp.type = "bandpass";
-            bp.frequency.setValueAtTime(6000, now);
-            bp.Q.setValueAtTime(1.4, now);
-            const g = ac.createGain();
-            g.gain.setValueAtTime(0.0001, now);
-            g.gain.linearRampToValueAtTime(0.14, now + 0.05);
-            g.gain.setValueAtTime(0.13, now + 0.34);
-            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
+            hp.Q.setValueAtTime(0.8, now);
+
+            const b1 = ac.createBiquadFilter();
+            b1.type = "bandpass";
+            b1.frequency.setValueAtTime(5500, now);
+            b1.Q.setValueAtTime(2.2, now);
+            const g1 = ac.createGain();
+            g1.gain.setValueAtTime(1.0, now);
+
+            const b2 = ac.createBiquadFilter();
+            b2.type = "bandpass";
+            b2.frequency.setValueAtTime(7600, now);
+            b2.Q.setValueAtTime(2.0, now);
+            const g2 = ac.createGain();
+            g2.gain.setValueAtTime(0.75, now);
+
+            const env = ac.createGain();
+            env.gain.setValueAtTime(0.0001, now);
+            env.gain.linearRampToValueAtTime(0.46, now + 0.06);
+            env.gain.setValueAtTime(0.42, now + dur - 0.14);
+            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+
             src.connect(hp);
-            hp.connect(bp);
-            bp.connect(g);
-            g.connect(ac.destination);
+            hp.connect(b1);
+            hp.connect(b2);
+            b1.connect(g1);
+            b2.connect(g2);
+            g1.connect(env);
+            g2.connect(env);
+            env.connect(ac.destination);
             src.start(now);
-            src.stop(now + 0.5);
+            src.stop(now + dur + 0.03);
+          } else if (ch === "a") {
+            playFormantVoice({
+              dur: 0.36,
+              f0Start: 232,
+              f0Peak: 248,
+              f0End: 206,
+              breath: 0.05,
+              att: 0.03,
+              rel: 0.08,
+              gain: 0.82,
+              cutoff: 4600,
+              formants: [
+                [700, 5.2, 1.0],
+                [1960, 7.6, 0.92],
+                [2820, 9.5, 0.44],
+                [3820, 10.5, 0.2],
+              ],
+            });
           } else if (ch === "t") {
             const buf = getNoiseBuffer();
             if (!buf) return;
+            const dur = 0.11;
             const src = ac.createBufferSource();
             src.buffer = buf;
-            const bp = ac.createBiquadFilter();
-            bp.type = "bandpass";
-            bp.frequency.setValueAtTime(4600, now);
-            bp.Q.setValueAtTime(1.8, now);
-            const g = ac.createGain();
-            g.gain.setValueAtTime(0.0001, now);
-            g.gain.linearRampToValueAtTime(0.24, now + 0.006);
-            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
-            src.connect(bp);
-            bp.connect(g);
-            g.connect(ac.destination);
+
+            const b1 = ac.createBiquadFilter();
+            b1.type = "bandpass";
+            b1.frequency.setValueAtTime(4200, now);
+            b1.Q.setValueAtTime(1.8, now);
+
+            const b2 = ac.createBiquadFilter();
+            b2.type = "bandpass";
+            b2.frequency.setValueAtTime(6600, now);
+            b2.Q.setValueAtTime(2.2, now);
+
+            const env = ac.createGain();
+            env.gain.setValueAtTime(0.0001, now);
+            env.gain.linearRampToValueAtTime(0.9, now + 0.004);
+            env.gain.exponentialRampToValueAtTime(0.28, now + 0.022);
+            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+
+            src.connect(b1);
+            src.connect(b2);
+            b1.connect(env);
+            b2.connect(env);
+            env.connect(ac.destination);
             src.start(now);
-            src.stop(now + 0.065);
+            src.stop(now + dur + 0.02);
           } else if (ch === "p") {
             const buf = getNoiseBuffer();
             if (!buf) return;
+            const dur = 0.12;
             const src = ac.createBufferSource();
             src.buffer = buf;
-            const bp = ac.createBiquadFilter();
-            bp.type = "bandpass";
-            bp.frequency.setValueAtTime(950, now);
-            bp.frequency.exponentialRampToValueAtTime(420, now + 0.06);
-            bp.Q.setValueAtTime(1.2, now);
-            const g = ac.createGain();
-            g.gain.setValueAtTime(0.0001, now);
-            g.gain.linearRampToValueAtTime(0.26, now + 0.008);
-            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.068);
-            src.connect(bp);
-            bp.connect(g);
-            g.connect(ac.destination);
+
+            const b1 = ac.createBiquadFilter();
+            b1.type = "bandpass";
+            b1.frequency.setValueAtTime(780, now);
+            b1.frequency.exponentialRampToValueAtTime(460, now + dur);
+            b1.Q.setValueAtTime(1.0, now);
+
+            const b2 = ac.createBiquadFilter();
+            b2.type = "bandpass";
+            b2.frequency.setValueAtTime(1850, now);
+            b2.Q.setValueAtTime(1.2, now);
+            const g2 = ac.createGain();
+            g2.gain.setValueAtTime(0.55, now);
+
+            const env = ac.createGain();
+            env.gain.setValueAtTime(0.0001, now);
+            env.gain.linearRampToValueAtTime(0.85, now + 0.006);
+            env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+
+            src.connect(b1);
+            src.connect(b2);
+            b1.connect(env);
+            b2.connect(g2);
+            g2.connect(env);
+            env.connect(ac.destination);
             src.start(now);
-            src.stop(now + 0.08);
+            src.stop(now + dur + 0.02);
+
+            const pop = ac.createOscillator();
+            const pg = ac.createGain();
+            pop.type = "sine";
+            pop.frequency.setValueAtTime(240, now);
+            pop.frequency.exponentialRampToValueAtTime(115, now + 0.026);
+            pg.gain.setValueAtTime(0.0001, now);
+            pg.gain.linearRampToValueAtTime(0.24, now + 0.004);
+            pg.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+            pop.connect(pg);
+            pg.connect(ac.destination);
+            pop.start(now);
+            pop.stop(now + 0.035);
+          } else if (ch === "i") {
+            playFormantVoice({
+              dur: 0.32,
+              f0Start: 238,
+              f0Peak: 254,
+              f0End: 214,
+              breath: 0.04,
+              att: 0.026,
+              rel: 0.075,
+              gain: 0.8,
+              cutoff: 4600,
+              formants: [
+                [435, 5.8, 1.0],
+                [2320, 8.2, 0.82],
+                [2960, 9.8, 0.4],
+                [3880, 10.5, 0.16],
+              ],
+            });
           } else if (ch === "n") {
-            const osc = ac.createOscillator();
-            const sub = ac.createOscillator();
-            osc.type = "triangle";
-            sub.type = "sine";
-            osc.frequency.setValueAtTime(220, now);
-            sub.frequency.setValueAtTime(220, now);
-            const lp = ac.createBiquadFilter();
-            lp.type = "lowpass";
-            lp.frequency.setValueAtTime(520, now);
-            const g = ac.createGain();
-            g.gain.setValueAtTime(0.0001, now);
-            g.gain.linearRampToValueAtTime(0.14, now + 0.04);
-            g.gain.setValueAtTime(0.12, now + 0.28);
-            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
-            osc.connect(lp);
-            sub.connect(lp);
-            lp.connect(g);
-            g.connect(ac.destination);
-            osc.start(now);
-            sub.start(now);
-            osc.stop(now + 0.44);
-            sub.stop(now + 0.44);
-          } else if (!window.speechSynthesis) {
-            playTone(ch === "a" ? 440 : 587.33, ch === "a" ? 460 : 620, 0.18, "triangle", 0.14, 0);
+            playFormantVoice({
+              dur: 0.48,
+              f0Start: 215,
+              f0Peak: 226,
+              f0End: 202,
+              breath: 0.015,
+              att: 0.045,
+              rel: 0.1,
+              gain: 0.88,
+              cutoff: 2900,
+              formants: [
+                [272, 4.8, 1.0],
+                [1450, 6.0, 0.18],
+                [2450, 7.8, 0.16],
+              ],
+            });
           }
         }
 
         function speakPhonic(ch) {
           if (muted || !hasUserGesture) return;
-          const def = LETTERS[ch];
-          if (!def) return;
+          if (!LETTERS[ch]) return;
           speakerPulse = 1.0;
-          playPhonemeSynth(ch);
-
-          if (!("speechSynthesis" in window) || typeof window.SpeechSynthesisUtterance !== "function") return;
-          try {
-            window.speechSynthesis.cancel();
-            const u = new SpeechSynthesisUtterance(def.tts);
-            if (!preferredVoice) preferredVoice = pickVoice();
-            if (preferredVoice) u.voice = preferredVoice;
-            u.lang = (preferredVoice && preferredVoice.lang) || "en-US";
-            u.rate = def.rate;
-            u.pitch = def.pitch;
-            u.volume = def.vol;
-            window.speechSynthesis.speak(u);
-          } catch (_) {}
+          playPurePhonic(ch);
         }
 
         function announce(text) {
