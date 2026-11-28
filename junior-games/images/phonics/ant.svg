@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <radialGradient id="antRed" cx="38%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#ff8a7a"/>
+      <stop offset="50%" stop-color="#e83d46"/>
+      <stop offset="100%" stop-color="#961824"/>
+    </radialGradient>
+    <linearGradient id="leafGround" x1="16" y1="98" x2="112" y2="118" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#69f58b"/>
+      <stop offset="100%" stop-color="#22ad4e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Bright green leaf/grass strip so the ant pops off dark cards -->
+  <ellipse cx="64" cy="108" rx="50" ry="11" fill="url(#leafGround)" stroke="#147333" stroke-width="2.5"/>
+
+  <!-- Back 3 legs -->
+  <g stroke="#6e1620" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M48 76 L38 89 L32 103"/>
+    <path d="M64 76 L64 90 L61 104"/>
+    <path d="M80 78 L92 89 L99 103"/>
+  </g>
+
+  <!-- Curved cute antennae -->
+  <path d="M35 46 C28 32 22 28 16 32" stroke="#851b26" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <path d="M46 43 C44 29 48 22 55 24" stroke="#851b26" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <circle cx="15" cy="32" r="4" fill="#ff7366" stroke="#7a1520" stroke-width="2"/>
+  <circle cx="56" cy="24" r="4" fill="#ff7366" stroke="#7a1520" stroke-width="2"/>
+
+  <!-- Plump striped abdomen (back segment) -->
+  <ellipse cx="90" cy="70" rx="22" ry="18" transform="rotate(-14 90 70)" fill="url(#antRed)" stroke="#6e141e" stroke-width="2.6"/>
+  <path d="M84 55 C89 63 89 77 84 85 M96 55 C101 63 101 76 96 84" stroke="#a61e2b" stroke-width="2.6" stroke-linecap="round" opacity="0.65"/>
+  <ellipse cx="86" cy="61" rx="7" ry="3.5" transform="rotate(-18 86 61)" fill="#ffc2ba" opacity="0.55"/>
+
+  <!-- Middle thorax segment -->
+  <ellipse cx="62" cy="72" rx="14" ry="12" fill="url(#antRed)" stroke="#6e141e" stroke-width="2.6"/>
+
+  <!-- Front 3 legs -->
+  <g stroke="#961c28" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M54 78 L46 92 L41 106"/>
+    <path d="M66 78 L71 93 L72 106"/>
+    <path d="M77 79 L87 93 L92 106"/>
+  </g>
+
+  <!-- Cute smiling head -->
+  <circle cx="38" cy="58" r="19" fill="url(#antRed)" stroke="#6e141e" stroke-width="2.6"/>
+  <ellipse cx="33" cy="48" rx="6" ry="3.2" transform="rotate(-24 33 48)" fill="#ffc2ba" opacity="0.55"/>
+
+  <!-- Big bright expressive eyes -->
+  <circle cx="30" cy="55" r="5.2" fill="#ffffff" stroke="#5e121a" stroke-width="1.6"/>
+  <circle cx="43" cy="55" r="5.2" fill="#ffffff" stroke="#5e121a" stroke-width="1.6"/>
+  <circle cx="29" cy="55.5" r="2.8" fill="#1c1124"/>
+  <circle cx="42" cy="55.5" r="2.8" fill="#1c1124"/>
+  <circle cx="28" cy="54.2" r="1.1" fill="#ffffff"/>
+  <circle cx="41" cy="54.2" r="1.1" fill="#ffffff"/>
+
+  <!-- Happy smile & rosy cheek -->
+  <path d="M29 66 Q36 72 43 66" stroke="#4f0d14" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+  <ellipse cx="47" cy="63" rx="3.4" ry="2.1" fill="#ff9eb5" opacity="0.75"/>
+</svg>

@@ -17,6 +17,8 @@ Fast lookup map of repository elements modeled as **nodes** and **edges** so LLM
 | `dir:junior-games` | `directory` | `junior-games/` | Toddler-friendly browser games rendered in the **Junior Arcade** section |
 | `dir:junior-audio` | `directory` | `junior-games/audio/phonics/` | Shared British English phonics `.m4a` clips (`letters/`, `words/`) & voice-swap `README.md` |
 | `junior:phonics-audio` | `script` | `junior-games/audio/phonics-audio.js` | Shared Web Audio / HTMLAudio British phonics playback engine + 18 cycling cue-word sprites (`window.PhonicsAudio`) |
+| `dir:junior-images` | `directory` | `junior-games/images/phonics/` | Shared 29 high-res `.svg` phonics illustrations (17 MIT Fluent Emoji + 12 custom) & swap `README.md` |
+| `junior:phonics-images` | `script` | `junior-games/images/phonics-images.js` | Shared SVG preload, in-memory cache & Canvas draw helper with pixel-sprite fallback (`window.PhonicsImages`) |
 | `doc:index` | `doc` | `docs/index.md` | This graph-style repository index |
 | `doc:overview` | `doc` | `docs/implementation/overview.md` | Thin architecture and cross-file relationship overview |
 | `doc:agents` | `doc` | `AGENTS.md` | Agent workflow rules for using and maintaining `docs/index.md` and `docs/implementation/` |
@@ -37,8 +39,9 @@ shell:runtime --renders-into--> shell:index      (#panel-arcade, #panel-junior, 
 shell:styles  --themes-->      shell:index       (default + body[data-section="junior"])
 dir:games     --contains-->    game:*
 dir:junior-games --contains--> junior:*
-junior:phonics-pop, junior:phonics-trace, junior:word-builder --loads--> junior:phonics-audio
+junior:phonics-pop, junior:phonics-trace, junior:word-builder --loads--> junior:phonics-audio, junior:phonics-images
 junior:phonics-audio --plays--> dir:junior-audio
+junior:phonics-images --renders--> dir:junior-images
 doc:agents    --governs-->     doc:index
 doc:agents    --governs-->     doc:overview
 skill:retro-standard --governs--> dir:games, dir:junior-games

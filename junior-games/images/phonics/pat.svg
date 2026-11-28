@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <radialGradient id="pupFur" cx="45%" cy="38%" r="65%">
+      <stop offset="0%" stop-color="#f7ca8b"/>
+      <stop offset="60%" stop-color="#d4904a"/>
+      <stop offset="100%" stop-color="#9e5d24"/>
+    </radialGradient>
+    <linearGradient id="handGrad" x1="16" y1="16" x2="72" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffe1c4"/>
+      <stop offset="100%" stop-color="#f2ad7c"/>
+    </linearGradient>
+    <linearGradient id="heartGrad" x1="92" y1="16" x2="114" y2="42" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ff8ab8"/>
+      <stop offset="100%" stop-color="#ff3377"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Floating love hearts -->
+  <path d="M99 24 C99 18 90 16 88 22 C86 28 99 36 99 36 C99 36 112 28 110 22 C108 16 99 18 99 24 Z" fill="url(#heartGrad)"/>
+  <path d="M113 44 C113 40 107 39 106 43 C105 47 113 52 113 52 C113 52 121 47 120 43 C119 39 113 40 113 44 Z" fill="url(#heartGrad)" opacity="0.88"/>
+
+  <!-- Puppy body -->
+  <ellipse cx="64" cy="108" rx="30" ry="18" fill="url(#pupFur)" stroke="#754116" stroke-width="2.6"/>
+  <!-- Red collar & gold tag -->
+  <path d="M44 96 Q64 104 84 96" stroke="#ff4268" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="64" cy="104" r="5" fill="#ffe14d" stroke="#b88408" stroke-width="1.8"/>
+
+  <!-- Floppy puppy ears -->
+  <ellipse cx="32" cy="74" rx="11" ry="20" transform="rotate(14 32 74)" fill="#8c4e1c" stroke="#5e320e" stroke-width="2.5"/>
+  <ellipse cx="96" cy="74" rx="11" ry="20" transform="rotate(-14 96 74)" fill="#8c4e1c" stroke="#5e320e" stroke-width="2.5"/>
+
+  <!-- Puppy round head -->
+  <ellipse cx="64" cy="72" rx="28" ry="25" fill="url(#pupFur)" stroke="#754116" stroke-width="2.6"/>
+  <!-- Cream snout -->
+  <ellipse cx="64" cy="80" rx="15" ry="11" fill="#fff2db"/>
+
+  <!-- Happy closed-arc smiling eyes (enjoying the pat!) -->
+  <path d="M47 68 Q52 62 57 68" stroke="#261710" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  <path d="M71 68 Q76 62 81 68" stroke="#261710" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+
+  <!-- Rosy cheeks -->
+  <ellipse cx="44" cy="76" rx="4.5" ry="2.6" fill="#ff73a2" opacity="0.6"/>
+  <ellipse cx="84" cy="76" rx="4.5" ry="2.6" fill="#ff73a2" opacity="0.6"/>
+
+  <!-- Cute shiny nose & tongue smile -->
+  <ellipse cx="64" cy="75" rx="6" ry="4.5" fill="#2b1b14"/>
+  <ellipse cx="62" cy="73.6" rx="2" ry="1.2" fill="#ffffff" opacity="0.65"/>
+  <path d="M58 83 Q64 89 70 83" stroke="#5e320e" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <path d="M60.5 85 C60.5 91 67.5 91 67.5 85 Z" fill="#ff6699"/>
+
+  <!-- Gentle patting hand resting softly on top of puppy's head -->
+  <g transform="translate(-2 0)">
+    <!-- Sleeve cuff -->
+    <path d="M10 26 L31 20 L36 39 L14 45 Z" fill="#38b6ff" stroke="#1868a8" stroke-width="2.5" stroke-linejoin="round"/>
+    <!-- Palm & soft fingers curving over head -->
+    <path d="M31 23 C41 20 55 21 68 27 C75 30 78 36 74 41 C72 44 67 45 62 44 L54 43 C48 45 40 44 34 39 Z" fill="url(#handGrad)" stroke="#b86c3e" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M58 29 L72 34 M56 35 L70 39" stroke="#cf8254" stroke-width="2" stroke-linecap="round"/>
+  </g>
+
+  <!-- Soft motion lines showing gentle patting motion -->
+  <path d="M52 14 Q62 10 72 15" stroke="#ffe14d" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <path d="M57 8 Q64 5 71 9" stroke="#ffe14d" stroke-width="2.2" stroke-linecap="round" fill="none" opacity="0.75"/>
+</svg>

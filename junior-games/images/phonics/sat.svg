@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <radialGradient id="catFur" cx="42%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#ffd08a"/>
+      <stop offset="55%" stop-color="#ff993b"/>
+      <stop offset="100%" stop-color="#d96716"/>
+    </radialGradient>
+    <linearGradient id="matGrad" x1="12" y1="90" x2="116" y2="118" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ff6b9d"/>
+      <stop offset="50%" stop-color="#e63e76"/>
+      <stop offset="100%" stop-color="#b52256"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Colorful woven oval mat -->
+  <ellipse cx="64" cy="105" rx="52" ry="15" fill="url(#matGrad)" stroke="#7a153a" stroke-width="2.8"/>
+  <ellipse cx="64" cy="105" rx="42" ry="10.5" fill="none" stroke="#ffe14d" stroke-width="3.5" stroke-dasharray="9 6"/>
+  <ellipse cx="64" cy="105" rx="30" ry="6.5" fill="#ff94b8" opacity="0.45"/>
+
+  <!-- Curled cat tail wrapping around right side -->
+  <path d="M84 96 C104 96 110 80 100 68 C94 61 88 68 92 75 C95 80 90 88 80 88" fill="none" stroke="#b5510e" stroke-width="11" stroke-linecap="round"/>
+  <path d="M84 96 C104 96 110 80 100 68 C94 61 88 68 92 75 C95 80 90 88 80 88" fill="none" stroke="#ff993b" stroke-width="6.5" stroke-linecap="round"/>
+
+  <!-- Sitting cat body -->
+  <ellipse cx="62" cy="82" rx="25" ry="26" fill="url(#catFur)" stroke="#9e470e" stroke-width="2.6"/>
+  <!-- Cream belly patch -->
+  <ellipse cx="62" cy="86" rx="14" ry="16" fill="#fff1d6"/>
+
+  <!-- Front paws neatly planted on the mat -->
+  <ellipse cx="51" cy="104" rx="8.5" ry="5.5" fill="#ffe2ba" stroke="#9e470e" stroke-width="2.2"/>
+  <ellipse cx="73" cy="104" rx="8.5" ry="5.5" fill="#ffe2ba" stroke="#9e470e" stroke-width="2.2"/>
+
+  <!-- Pointy ears -->
+  <path d="M40 38 L34 15 L55 28 Z" fill="url(#catFur)" stroke="#9e470e" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M84 38 L90 15 L69 28 Z" fill="url(#catFur)" stroke="#9e470e" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M42 34 L38 21 L50 29 Z" fill="#ff9ec4"/>
+  <path d="M82 34 L86 21 L74 29 Z" fill="#ff9ec4"/>
+
+  <!-- Round cat head -->
+  <ellipse cx="62" cy="45" rx="25" ry="21" fill="url(#catFur)" stroke="#9e470e" stroke-width="2.6"/>
+
+  <!-- Tabby forehead stripes -->
+  <path d="M56 26 L57 33 M62 25 L62 34 M68 26 L67 33" stroke="#b5510e" stroke-width="2.8" stroke-linecap="round"/>
+
+  <!-- Expressive eyes -->
+  <circle cx="52" cy="44" r="4.5" fill="#1e1530"/>
+  <circle cx="72" cy="44" r="4.5" fill="#1e1530"/>
+  <circle cx="50.5" cy="42.4" r="1.6" fill="#ffffff"/>
+  <circle cx="70.5" cy="42.4" r="1.6" fill="#ffffff"/>
+
+  <!-- Rosy cheeks -->
+  <ellipse cx="43" cy="50" rx="4.2" ry="2.6" fill="#ff6b9d" opacity="0.6"/>
+  <ellipse cx="81" cy="50" rx="4.2" ry="2.6" fill="#ff6b9d" opacity="0.6"/>
+
+  <!-- Cute pink nose & happy smile -->
+  <path d="M58.5 49 H65.5 L62 53.5 Z" fill="#ff5c8a"/>
+  <path d="M62 53.5 Q57.5 58 54 55.5 M62 53.5 Q66.5 58 70 55.5" stroke="#5e2a0c" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+
+  <!-- Whiskers -->
+  <path d="M39 48 L27 46 M39 52 L28 54 M85 48 L97 46 M85 52 L96 54" stroke="#6e330d" stroke-width="2" stroke-linecap="round"/>
+</svg>

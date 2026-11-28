@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="roofGrad" x1="20" y1="42" x2="108" y2="76" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ff7a8a"/>
+      <stop offset="50%" stop-color="#ff3b5c"/>
+      <stop offset="100%" stop-color="#bf193b"/>
+    </linearGradient>
+    <linearGradient id="wallGrad" x1="30" y1="70" x2="98" y2="114" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fff9eb"/>
+      <stop offset="100%" stop-color="#f2dfb8"/>
+    </linearGradient>
+    <linearGradient id="pinGrad" x1="50" y1="8" x2="78" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#85ff9e"/>
+      <stop offset="55%" stop-color="#2fe068"/>
+      <stop offset="100%" stop-color="#0f9942"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Green grass hill -->
+  <ellipse cx="64" cy="114" rx="54" ry="11" fill="#32cc63" stroke="#18803a" stroke-width="2.5"/>
+
+  <!-- Chimney -->
+  <rect x="82" y="48" width="12" height="22" rx="3" fill="#c94b3a" stroke="#7a251a" stroke-width="2.4"/>
+
+  <!-- Cozy cottage walls -->
+  <rect x="28" y="70" width="72" height="44" rx="5" fill="url(#wallGrad)" stroke="#a68a5b" stroke-width="2.8"/>
+
+  <!-- Sloped bright red roof -->
+  <path d="M18 75 L64 40 L110 75 Z" fill="url(#roofGrad)" stroke="#8c122b" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M30 71 L64 46 L98 71" stroke="#ffa8b4" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.65"/>
+
+  <!-- Warm wooden door -->
+  <path d="M56 114 V88 C56 83 60 80 64 80 C68 80 72 83 72 88 V114 Z" fill="#a8622e" stroke="#5e3212" stroke-width="2.5"/>
+  <circle cx="68" cy="98" r="2.2" fill="#ffe14d"/>
+
+  <!-- Glowing sunny windows -->
+  <rect x="35" y="83" width="15" height="15" rx="3" fill="#ffe97a" stroke="#5e3212" stroke-width="2.3"/>
+  <path d="M42.5 83 V98 M35 90.5 H50" stroke="#5e3212" stroke-width="2"/>
+  <rect x="78" y="83" width="15" height="15" rx="3" fill="#ffe97a" stroke="#5e3212" stroke-width="2.3"/>
+  <path d="M85.5 83 V98 M78 90.5 H93" stroke="#5e3212" stroke-width="2"/>
+
+  <!-- Big bright green location pin / arrow pointing directly AT the house -->
+  <path d="M64 44 C64 44 80 28 80 19 C80 10.2 72.8 4 64 4 C55.2 4 48 10.2 48 19 C48 28 64 44 64 44 Z" fill="url(#pinGrad)" stroke="#0d6e30" stroke-width="2.8" stroke-linejoin="round"/>
+  <circle cx="64" cy="18.5" r="6.5" fill="#ffffff" stroke="#0f9942" stroke-width="2"/>
+</svg>

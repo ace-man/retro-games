@@ -197,6 +197,7 @@
     </main>
 
     <script src="audio/phonics-audio.js"></script>
+    <script src="images/phonics-images.js"></script>
     <script>
       (() => {
         "use strict";
@@ -439,9 +440,16 @@
             : { next: (ch) => (LETTERS[ch] && LETTERS[ch].cueWord) || "" };
 
         function drawCueSprite(word, cx, cy, size) {
+          if (window.PhonicsImages && window.PhonicsImages.draw(ctx, word, cx, cy, size)) {
+            return;
+          }
           if (window.PhonicsAudio && typeof window.PhonicsAudio.drawCueSprite === "function") {
             window.PhonicsAudio.drawCueSprite(ctx, word, cx, cy, size);
           }
+        }
+
+        if (window.PhonicsImages && window.PhonicsAudio) {
+          window.PhonicsImages.preload(window.PhonicsAudio.getAllCueWords());
         }
 
         // -------------------------------------------------------------------
@@ -1446,7 +1454,7 @@
             letter.fill,
             4
           );
-          drawCueSprite(word, 0, -badgeSize * 0.1, badgeSize * 0.54);
+          drawCueSprite(word, 0, -badgeSize * 0.11, badgeSize * 0.58);
           const fontPx = Math.max(10, Math.floor(badgeSize * (word.length > 6 ? 0.135 : 0.175)));
           ctx.font = `900 ${fontPx}px "Courier New", Courier, monospace`;
           ctx.textAlign = "center";

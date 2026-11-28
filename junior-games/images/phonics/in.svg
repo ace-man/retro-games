@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <radialGradient id="bearFur" cx="44%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#ffe28a"/>
+      <stop offset="58%" stop-color="#f5b038"/>
+      <stop offset="100%" stop-color="#c47412"/>
+    </radialGradient>
+    <linearGradient id="boxFront" x1="22" y1="68" x2="106" y2="118" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#e3b178"/>
+      <stop offset="100%" stop-color="#b57a3e"/>
+    </linearGradient>
+    <linearGradient id="boxInside" x1="64" y1="56" x2="64" y2="80" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7a4c21"/>
+      <stop offset="100%" stop-color="#4d2c0e"/>
+    </linearGradient>
+    <linearGradient id="arrowGrad" x1="64" y1="4" x2="64" y2="38" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#85ff9e"/>
+      <stop offset="100%" stop-color="#19c452"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Bright green downward arrow pointing IN to the box -->
+  <path d="M56 6 H72 V20 H83 L64 38 L45 20 H56 Z" fill="url(#arrowGrad)" stroke="#0d6e30" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Box back rim & dark interior -->
+  <rect x="26" y="66" width="76" height="26" rx="4" fill="url(#boxInside)" stroke="#5c3614" stroke-width="2.6"/>
+
+  <!-- Cute teddy bear sitting INSIDE the box -->
+  <g>
+    <!-- Round bear ears -->
+    <circle cx="44" cy="48" r="9.5" fill="url(#bearFur)" stroke="#854b0c" stroke-width="2.4"/>
+    <circle cx="84" cy="48" r="9.5" fill="url(#bearFur)" stroke="#854b0c" stroke-width="2.4"/>
+    <circle cx="44" cy="48" r="4.8" fill="#ffd1a6"/>
+    <circle cx="84" cy="48" r="4.8" fill="#ffd1a6"/>
+
+    <!-- Bear head -->
+    <ellipse cx="64" cy="60" rx="22" ry="19" fill="url(#bearFur)" stroke="#854b0c" stroke-width="2.5"/>
+    <!-- Cream snout -->
+    <ellipse cx="64" cy="66" rx="10" ry="7.5" fill="#fff5e0"/>
+
+    <!-- Happy sparkling eyes -->
+    <circle cx="55" cy="57" r="3.6" fill="#21140d"/>
+    <circle cx="73" cy="57" r="3.6" fill="#21140d"/>
+    <circle cx="53.8" cy="55.8" r="1.3" fill="#ffffff"/>
+    <circle cx="71.8" cy="55.8" r="1.3" fill="#ffffff"/>
+
+    <!-- Rosy cheeks -->
+    <ellipse cx="48" cy="63" rx="3.8" ry="2.2" fill="#ff73a2" opacity="0.6"/>
+    <ellipse cx="80" cy="63" rx="3.8" ry="2.2" fill="#ff73a2" opacity="0.6"/>
+
+    <!-- Nose & smile -->
+    <ellipse cx="64" cy="63" rx="4.2" ry="3" fill="#3d220e"/>
+    <path d="M59.5 68 Q64 72 68.5 68" stroke="#5e320e" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+  </g>
+
+  <!-- Open cardboard box front & side flaps -->
+  <!-- Left flap -->
+  <path d="M26 74 L12 63 L22 54 L36 68 Z" fill="#f0c48e" stroke="#6e4118" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- Right flap -->
+  <path d="M102 74 L116 63 L106 54 L92 68 Z" fill="#f0c48e" stroke="#6e4118" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- Box front face -->
+  <rect x="26" y="74" width="76" height="44" rx="6" fill="url(#boxFront)" stroke="#6e4118" stroke-width="2.8"/>
+  <!-- Little bear paws resting over the top edge of the box! -->
+  <ellipse cx="44" cy="75" rx="8.5" ry="5.5" fill="url(#bearFur)" stroke="#854b0c" stroke-width="2.2"/>
+  <ellipse cx="84" cy="75" rx="8.5" ry="5.5" fill="url(#bearFur)" stroke="#854b0c" stroke-width="2.2"/>
+
+  <!-- Cute cardboard packing tape strip on front of box -->
+  <rect x="57" y="74" width="14" height="16" fill="#ffefc7" opacity="0.72"/>
+  <line x1="34" y1="108" x2="54" y2="108" stroke="#855124" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+</svg>

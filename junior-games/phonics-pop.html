@@ -197,6 +197,7 @@
     </main>
 
     <script src="audio/phonics-audio.js"></script>
+    <script src="images/phonics-images.js"></script>
     <script>
       (() => {
         "use strict";
@@ -404,9 +405,16 @@
             : { next: (ch) => (LETTER_META[ch] && LETTER_META[ch].cueWord) || "" };
 
         function drawCueSprite(word, cx, cy, size) {
+          if (window.PhonicsImages && window.PhonicsImages.draw(ctx, word, cx, cy, size)) {
+            return;
+          }
           if (window.PhonicsAudio && typeof window.PhonicsAudio.drawCueSprite === "function") {
             window.PhonicsAudio.drawCueSprite(ctx, word, cx, cy, size);
           }
+        }
+
+        if (window.PhonicsImages && window.PhonicsAudio) {
+          window.PhonicsImages.preload(window.PhonicsAudio.getAllCueWords());
         }
 
         // -------------------------------------------------------------------
@@ -1394,9 +1402,9 @@
             5
           );
 
-          // Pixel art cue icon (cycles through 3 cue words per letter!)
+          // Vector SVG cue illustration (cycles through 3 cue words per letter!)
           const word = cueEffect.cueWord || cueEffect.meta.cueWord;
-          drawCueSprite(word, 0, -cardSize * 0.11, cardSize * 0.52);
+          drawCueSprite(word, 0, -cardSize * 0.12, cardSize * 0.56);
 
           // Lowercase vector letter + cue word centered cleanly underneath
           const isLong = word.length > 6;

@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="barkGrad" x1="32" y1="36" x2="78" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#a8683a"/>
+      <stop offset="55%" stop-color="#7c4722"/>
+      <stop offset="100%" stop-color="#4f2a10"/>
+    </linearGradient>
+    <radialGradient id="canopyGrad" cx="45%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#7dff96"/>
+      <stop offset="55%" stop-color="#30c95e"/>
+      <stop offset="100%" stop-color="#147a37"/>
+    </radialGradient>
+    <radialGradient id="sapGrad" cx="38%" cy="32%" r="68%">
+      <stop offset="0%" stop-color="#fff4a8"/>
+      <stop offset="45%" stop-color="#ffbe26"/>
+      <stop offset="100%" stop-color="#d66d00"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Grass base -->
+  <ellipse cx="56" cy="115" rx="46" ry="10" fill="#2ebd59" stroke="#157a35" stroke-width="2.5"/>
+
+  <!-- Tree trunk -->
+  <path d="M36 42 H74 L80 112 C80 116 74 118 55 118 C36 118 30 116 30 112 Z" fill="url(#barkGrad)" stroke="#3d1e0a" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Bark texture lines -->
+  <path d="M44 54 V98 M58 58 V108 M68 50 V74" stroke="#4f290f" stroke-width="2.6" stroke-linecap="round" opacity="0.65"/>
+
+  <!-- Leafy tree crown at top -->
+  <circle cx="34" cy="34" r="22" fill="url(#canopyGrad)" stroke="#146e31" stroke-width="2.6"/>
+  <circle cx="78" cy="34" r="22" fill="url(#canopyGrad)" stroke="#146e31" stroke-width="2.6"/>
+  <circle cx="56" cy="24" r="25" fill="url(#canopyGrad)" stroke="#146e31" stroke-width="2.6"/>
+  <path d="M44 16 Q56 10 68 17" stroke="#c8ffd4" stroke-width="3.5" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Little wooden tap notch / bark cleft -->
+  <path d="M62 63 L86 67 C89 68 89 72 86 73 L64 74 Z" fill="#b87b46" stroke="#4f2a10" stroke-width="2.4" stroke-linejoin="round"/>
+
+  <!-- Oozing golden honey-amber tree sap -->
+  <path d="M66 64 C76 62 88 64 90 73 C91 79 86 85 81 84 C77 83 78 75 72 74 C67 73 63 69 66 64 Z" fill="url(#sapGrad)" stroke="#a34e00" stroke-width="2.2"/>
+
+  <!-- Big glossy hanging sap drop -->
+  <path d="M89 79 C89 79 102 94 102 103 C102 110.2 96.2 116 89 116 C81.8 116 76 110.2 76 103 C76 94 89 79 89 79 Z" fill="url(#sapGrad)" stroke="#a34e00" stroke-width="2.4"/>
+  <ellipse cx="84.5" cy="100" rx="3.4" ry="5.8" transform="rotate(-16 84.5 100)" fill="#ffffff" opacity="0.82"/>
+
+  <!-- Smaller sap bead on bark -->
+  <path d="M51 74 C51 74 58 83 58 88 C58 91.8 54.9 95 51 95 C47.1 95 44 91.8 44 88 C44 83 51 74 51 74 Z" fill="url(#sapGrad)" stroke="#a34e00" stroke-width="2"/>
+  <circle cx="48.5" cy="87" r="2" fill="#ffffff" opacity="0.8"/>
+</svg>

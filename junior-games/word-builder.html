@@ -215,6 +215,7 @@
     </main>
 
     <script src="audio/phonics-audio.js"></script>
+    <script src="images/phonics-images.js"></script>
     <script>
       (() => {
         "use strict";
@@ -667,12 +668,19 @@
           },
         };
 
+        if (window.PhonicsImages) {
+          window.PhonicsImages.preload(STAGES[1].words.concat(STAGES[2].words));
+        }
+
         function drawWordSprite(word, cx, cy, size, celebratePulse) {
+          const bobY = celebratePulse && !reducedMotion ? Math.sin(elapsed * 12) * 5 : 0;
+          if (window.PhonicsImages && window.PhonicsImages.draw(ctx, word, cx, cy + bobY, size)) {
+            return;
+          }
           const sprite = WORD_SPRITES[word];
           if (!sprite) return;
           const n = sprite.rows.length;
           const cell = size / n;
-          const bobY = celebratePulse && !reducedMotion ? Math.sin(elapsed * 12) * 5 : 0;
           const x0 = cx - size / 2;
           const y0 = cy - size / 2 + bobY;
           for (let r = 0; r < n; r++) {

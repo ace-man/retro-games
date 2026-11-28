@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <radialGradient id="dogFur" cx="42%" cy="34%" r="65%">
+      <stop offset="0%" stop-color="#ffdb9e"/>
+      <stop offset="55%" stop-color="#e09c53"/>
+      <stop offset="100%" stop-color="#a86224"/>
+    </radialGradient>
+    <linearGradient id="grassPad" x1="16" y1="96" x2="112" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#5cf285"/>
+      <stop offset="100%" stop-color="#1ca84b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Soft green grass cushion -->
+  <ellipse cx="64" cy="109" rx="50" ry="13" fill="url(#grassPad)" stroke="#126e32" stroke-width="2.6"/>
+
+  <!-- Wagging tail -->
+  <path d="M88 94 C104 92 112 78 106 66" stroke="#8c4e1a" stroke-width="11" stroke-linecap="round" fill="none"/>
+  <path d="M88 94 C104 92 112 78 106 66" stroke="#e09c53" stroke-width="6.5" stroke-linecap="round" fill="none"/>
+  <!-- Cute wag lines -->
+  <path d="M113 60 Q118 66 114 73" stroke="#ffe14d" stroke-width="2.8" stroke-linecap="round" fill="none"/>
+
+  <!-- Sitting hind haunches (clearly seated!) -->
+  <ellipse cx="76" cy="92" rx="19" ry="17" fill="url(#dogFur)" stroke="#754015" stroke-width="2.6"/>
+  <ellipse cx="86" cy="105" rx="11" ry="6" fill="#ffebd0" stroke="#754015" stroke-width="2.3"/>
+
+  <!-- Upright puppy torso -->
+  <ellipse cx="56" cy="84" rx="20" ry="24" fill="url(#dogFur)" stroke="#754015" stroke-width="2.6"/>
+  <!-- Cream chest -->
+  <ellipse cx="53" cy="85" rx="12" ry="16" fill="#fff4e0"/>
+
+  <!-- Neat straight front legs planted down -->
+  <rect x="40" y="84" width="11" height="24" rx="5.5" fill="#f7c888" stroke="#754015" stroke-width="2.4"/>
+  <rect x="56" y="84" width="11" height="24" rx="5.5" fill="#f7c888" stroke="#754015" stroke-width="2.4"/>
+  <ellipse cx="45" cy="108" rx="7.5" ry="4.5" fill="#fff4e0" stroke="#754015" stroke-width="2.2"/>
+  <ellipse cx="62" cy="108" rx="7.5" ry="4.5" fill="#fff4e0" stroke="#754015" stroke-width="2.2"/>
+
+  <!-- Blue collar -->
+  <path d="M39 67 Q56 75 73 67" stroke="#38b6ff" stroke-width="6.5" stroke-linecap="round"/>
+  <circle cx="56" cy="74" r="4.2" fill="#ffe14d" stroke="#b88408" stroke-width="1.6"/>
+
+  <!-- Floppy ears -->
+  <ellipse cx="30" cy="48" rx="9.5" ry="18" transform="rotate(16 30 48)" fill="#8c4e1a" stroke="#592e0d" stroke-width="2.5"/>
+  <ellipse cx="82" cy="48" rx="9.5" ry="18" transform="rotate(-16 82 48)" fill="#8c4e1a" stroke="#592e0d" stroke-width="2.5"/>
+
+  <!-- Puppy head -->
+  <ellipse cx="56" cy="44" rx="24" ry="22" fill="url(#dogFur)" stroke="#754015" stroke-width="2.6"/>
+  <!-- Cute spot over left eye -->
+  <ellipse cx="45" cy="41" rx="8.5" ry="7.5" fill="#b86c2c" opacity="0.55"/>
+  <!-- Cream muzzle -->
+  <ellipse cx="56" cy="52" rx="13" ry="9.5" fill="#fff4e0"/>
+
+  <!-- Bright friendly eyes -->
+  <circle cx="46" cy="42" r="4.3" fill="#21140d"/>
+  <circle cx="66" cy="42" r="4.3" fill="#21140d"/>
+  <circle cx="44.5" cy="40.5" r="1.5" fill="#ffffff"/>
+  <circle cx="64.5" cy="40.5" r="1.5" fill="#ffffff"/>
+
+  <!-- Nose & happy tongue -->
+  <ellipse cx="56" cy="48" rx="5.5" ry="4" fill="#24150e"/>
+  <path d="M51 55 Q56 60 61 55" stroke="#592e0d" stroke-width="2.3" stroke-linecap="round" fill="none"/>
+  <path d="M53 57 C53 63 59 63 59 57 Z" fill="#ff6699"/>
+</svg>

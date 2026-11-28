@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <radialGradient id="domeGrad" cx="42%" cy="32%" r="68%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="55%" stop-color="#d4f1ff"/>
+      <stop offset="100%" stop-color="#7ec8f2"/>
+    </radialGradient>
+    <linearGradient id="tunnelGrad" x1="56" y1="64" x2="104" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#eefaff"/>
+      <stop offset="100%" stop-color="#89cef5"/>
+    </linearGradient>
+    <linearGradient id="doorDark" x1="76" y1="74" x2="76" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1c2a5e"/>
+      <stop offset="100%" stop-color="#0d1333"/>
+    </linearGradient>
+    <linearGradient id="snowGround" x1="64" y1="96" x2="64" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f2fbff"/>
+      <stop offset="100%" stop-color="#a8ddf8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Snow ground mound -->
+  <ellipse cx="64" cy="108" rx="56" ry="14" fill="url(#snowGround)" stroke="#5da8d6" stroke-width="2.5"/>
+
+  <!-- Main igloo dome -->
+  <path d="M16 104 C16 54 34 26 62 26 C90 26 108 54 108 104 Z" fill="url(#domeGrad)" stroke="#4e9bc9" stroke-width="3"/>
+
+  <!-- Ice block horizontal courses -->
+  <path d="M29 49 Q62 56 95 49" stroke="#76bce3" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <path d="M21 68 Q62 76 103 68" stroke="#76bce3" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <path d="M17 87 Q62 94 107 87" stroke="#76bce3" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+
+  <!-- Ice block vertical joints -->
+  <path d="M48 30 L45 51 M76 30 L79 51" stroke="#76bce3" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M36 51 L33 70 M62 52 L62 72 M88 51 L91 70" stroke="#76bce3" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M28 70 L26 89 M50 72 L49 91 M74 72 L75 91" stroke="#76bce3" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M38 90 L38 104" stroke="#76bce3" stroke-width="2.4" stroke-linecap="round"/>
+
+  <!-- Protruding arched entrance tunnel -->
+  <path d="M56 106 V78 C56 62 70 56 84 56 C98 56 112 64 112 82 V106 Z" fill="url(#tunnelGrad)" stroke="#4e9bc9" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M58 76 Q84 80 110 76" stroke="#76bce3" stroke-width="2.2" fill="none"/>
+
+  <!-- Cozy dark inner doorway -->
+  <path d="M68 106 V84 C68 72 75 66 85 66 C95 66 102 72 102 84 V106 Z" fill="url(#doorDark)" stroke="#4e9bc9" stroke-width="2.5"/>
+
+  <!-- Soft highlight shimmer on dome -->
+  <path d="M36 40 C44 33 54 30 62 30" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" opacity="0.85"/>
+
+  <!-- Cute snow sparkles -->
+  <circle cx="24" cy="28" r="3" fill="#ffffff" opacity="0.9"/>
+  <circle cx="106" cy="34" r="2.5" fill="#d4f1ff" opacity="0.9"/>
+</svg>

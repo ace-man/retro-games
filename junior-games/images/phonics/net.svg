@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="woodHandle" x1="16" y1="112" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9e5e2a"/>
+      <stop offset="50%" stop-color="#d99352"/>
+      <stop offset="100%" stop-color="#b56c32"/>
+    </linearGradient>
+    <linearGradient id="netBag" x1="56" y1="18" x2="112" y2="74" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#e3faff" stop-opacity="0.92"/>
+      <stop offset="100%" stop-color="#72d9ff" stop-opacity="0.82"/>
+    </linearGradient>
+    <linearGradient id="hoopGrad" x1="48" y1="22" x2="96" y2="70" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffaa52"/>
+      <stop offset="100%" stop-color="#ff5e3a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Billowing net bag behind hoop -->
+  <path d="M55 26 C72 10 104 14 114 34 C122 52 108 76 86 78 C75 79 65 73 58 64 Z" fill="url(#netBag)" stroke="#2b95c9" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Crisp diamond mesh lines inside bag -->
+  <g stroke="#2894c9" stroke-width="2" opacity="0.72" stroke-linecap="round">
+    <path d="M62 24 L106 62"/>
+    <path d="M74 18 L113 52"/>
+    <path d="M88 18 L114 40"/>
+    <path d="M58 38 L94 74"/>
+    <path d="M104 22 L66 68"/>
+    <path d="M113 34 L77 75"/>
+    <path d="M90 17 L60 54"/>
+    <path d="M114 48 L92 75"/>
+  </g>
+
+  <!-- Wooden handle -->
+  <line x1="18" y1="112" x2="58" y2="72" stroke="#6b3b15" stroke-width="14" stroke-linecap="round"/>
+  <line x1="18" y1="112" x2="58" y2="72" stroke="url(#woodHandle)" stroke-width="9" stroke-linecap="round"/>
+  <line x1="21" y1="106" x2="52" y2="75" stroke="#f5c68c" stroke-width="2.5" stroke-linecap="round" opacity="0.75"/>
+
+  <!-- Metal ferrule connecting handle and hoop -->
+  <rect x="49" y="65" width="12" height="10" rx="3" transform="rotate(-45 55 70)" fill="#d6e8f5" stroke="#53728f" stroke-width="2"/>
+
+  <!-- Bright coral-orange rim hoop -->
+  <ellipse cx="72" cy="48" rx="18" ry="30" transform="rotate(-42 72 48)" fill="none" stroke="#b8341c" stroke-width="8.5"/>
+  <ellipse cx="72" cy="48" rx="18" ry="30" transform="rotate(-42 72 48)" fill="none" stroke="url(#hoopGrad)" stroke-width="5"/>
+
+  <!-- Cheerful little butterfly fluttering near the net -->
+  <g transform="translate(26 32) rotate(-18)">
+    <ellipse cx="-6" cy="-4" rx="8" ry="6" fill="#ffe14d" stroke="#d48806" stroke-width="1.8"/>
+    <ellipse cx="6" cy="-4" rx="8" ry="6" fill="#ffe14d" stroke="#d48806" stroke-width="1.8"/>
+    <ellipse cx="-5" cy="4" rx="5.5" ry="4.5" fill="#ff7eb6" stroke="#c2296e" stroke-width="1.6"/>
+    <ellipse cx="5" cy="4" rx="5.5" ry="4.5" fill="#ff7eb6" stroke="#c2296e" stroke-width="1.6"/>
+    <rect x="-2" y="-7" width="4" height="15" rx="2" fill="#3a234d"/>
+  </g>
+</svg>
