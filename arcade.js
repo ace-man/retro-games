@@ -462,7 +462,7 @@
         if (isSelected) {
           panel.hidden = false;
         } else {
-          panel.setAttribute("hidden", "until-found");
+          panel.hidden = "until-found";
         }
       }
     }

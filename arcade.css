@@ -434,11 +434,16 @@ body[data-section="junior"] .section-tablist {
 /* Tab panels: zero padding/margin/border/background on [role="tabpanel"] itself for hidden="until-found" safety */
 .section-panels {
   display: grid;
+  align-items: start;
 }
 
 .section-panel {
   grid-area: 1 / 1;
   min-width: 0;
+}
+
+.section-panel[hidden="until-found"] {
+  pointer-events: none;
 }
 
 .section-panel-inner {
