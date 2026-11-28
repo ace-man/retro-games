@@ -68,6 +68,9 @@ Exact filenames and display aliases (note non-English filenames and renamed clas
 | `junior:shape-tracer` | `junior-games/shape-tracer.html` | Shape Tracer | Toddlers & kids, shape tracing & spoken naming | Puzzle | 2026 | `#38d9ff` |
 | `junior:letter-tracer` | `junior-games/letter-tracer.html` | Letter Tracer | Toddlers & kids, A–Z letter tracing & phonics sounds | Puzzle | 2026 | `#ff9f43` |
 | `junior:animal-sorter` | `junior-games/animal-sorter.html` | Animal Sorter | Toddlers & kids, touch drag animals to pictorial habitats | Puzzle | 2026 | `#39e58c` |
+| `junior:phonics-pop` | `junior-games/phonics-pop.html` | Phonics Pop | Toddlers, 2-stage s/a/t/p/i/n phonics bubble popping | Arcade | 2026 | `#ff5ca8` |
+| `junior:phonics-trace` | `junior-games/phonics-trace.html` | Phonics Trace | Toddlers, 2-stage lowercase s/a/t/p/i/n neon path tracing | Puzzle | 2026 | `#38d9ff` |
+| `junior:word-builder` | `junior-games/word-builder.html` | Word Builder | Toddlers, 2-stage drag-and-drop phonics word building & blending | Puzzle | 2026 | `#ffe14d` |
 
 ---
 

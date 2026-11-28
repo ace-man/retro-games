@@ -1,0 +1,1911 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Phonics Pop</title>
+    <meta
+      name="description"
+      content="Toddler phonics bubble-popping arcade game: listen to the letter sound and tap the matching glowing bubble."
+    />
+    <meta name="game:genre" content="Arcade" />
+    <meta name="game:tags" content="phonics, toddlers, touch, bubbles" />
+    <meta name="game:added" content="2026-11-28" />
+    <meta name="game:year" content="2026" />
+    <meta name="game:controls" content="Tap the bubble that matches the sound" />
+    <meta name="game:author" content="Arcade Bot" />
+    <meta name="game:color" content="#ff5ca8" />
+    <style>
+      :root {
+        --target-size: 44px;
+        --hud-bg: rgba(18, 11, 46, 0.82);
+        --hud-border: #ff5ca8;
+        --hud-text: #ffffff;
+        --focus-ring: #ffe14d;
+      }
+
+      @media (pointer: coarse) {
+        :root {
+          --target-size: 48px;
+        }
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        font-family: "Courier New", Courier, monospace;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      main.stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        container: stage / inline-size;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+
+      #game {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        cursor: pointer;
+      }
+
+      .hud-bar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding-top: max(10px, env(safe-area-inset-top, 0px));
+        padding-right: max(10px, env(safe-area-inset-right, 0px));
+        padding-left: max(10px, env(safe-area-inset-left, 0px));
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      .hud-btn {
+        pointer-events: auto;
+        min-inline-size: var(--target-size);
+        min-block-size: var(--target-size);
+        padding: 4px 12px;
+        border-radius: 14px;
+        border: 2.5px solid var(--hud-border);
+        background: var(--hud-bg);
+        color: var(--hud-text);
+        font: 900 17px/1 "Courier New", Courier, monospace;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        cursor: pointer;
+        touch-action: manipulation;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4);
+        transition: transform 120ms ease, border-color 120ms ease, color 120ms ease;
+      }
+
+      .hud-btn:active {
+        transform: scale(0.94);
+      }
+
+      .hud-btn:focus-visible {
+        outline: 3px solid var(--focus-ring);
+        outline-offset: 3px;
+      }
+
+      .hud-btn--stage {
+        border-color: #66ff66;
+        color: #66ff66;
+      }
+
+      .hud-btn--pause {
+        border-color: #ffe14d;
+        color: #ffe14d;
+      }
+
+      .hud-btn[aria-pressed="true"] {
+        border-color: #ff5ca8;
+        color: #ff5ca8;
+      }
+
+      .hud-btn[hidden] {
+        display: none;
+      }
+
+      @container stage (inline-size < 300px) {
+        .hud-bar {
+          display: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hud-btn {
+          transition: none;
+        }
+      }
+
+      .visually-hidden:where(:not(:focus-within, :active)) {
+        position: absolute !important;
+        clip-path: inset(50%) !important;
+        overflow: hidden !important;
+        width: 1px !important;
+        height: 1px !important;
+        margin: -1px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        white-space: nowrap !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="stage">
+      <h1 class="visually-hidden">Phonics Pop</h1>
+      <canvas id="game" aria-label="Phonics Pop toddler phonics arcade game"></canvas>
+
+      <div class="hud-bar" role="toolbar" aria-label="Game controls">
+        <button
+          id="btn-stage"
+          class="hud-btn hud-btn--stage"
+          type="button"
+          aria-label="Switch phonics stage"
+          hidden
+        >
+          <span aria-hidden="true">S1</span>
+        </button>
+        <button
+          id="btn-pause"
+          class="hud-btn hud-btn--pause"
+          type="button"
+          aria-label="Pause game"
+          aria-pressed="false"
+          hidden
+        >
+          <span aria-hidden="true">II</span>
+        </button>
+        <button
+          id="btn-mute"
+          class="hud-btn"
+          type="button"
+          aria-label="Mute sound"
+          aria-pressed="false"
+        >
+          <span aria-hidden="true">♪</span>
+        </button>
+      </div>
+
+      <div id="live-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+    </main>
+
+    <script>
+      (() => {
+        "use strict";
+
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
+        const btnStage = document.getElementById("btn-stage");
+        const btnPause = document.getElementById("btn-pause");
+        const btnMute = document.getElementById("btn-mute");
+        const liveStatus = document.getElementById("live-status");
+
+        const STORAGE_STAGE = "phonics-pop:stage";
+        const STORAGE_STARS = "phonics-pop:stars";
+
+        const reducedMotionQuery = window.matchMedia
+          ? window.matchMedia("(prefers-reduced-motion: reduce)")
+          : { matches: false };
+        let reducedMotion = !!reducedMotionQuery.matches;
+        if (typeof reducedMotionQuery.addEventListener === "function") {
+          reducedMotionQuery.addEventListener("change", (ev) => {
+            reducedMotion = ev.matches;
+          });
+        }
+
+        // -------------------------------------------------------------------
+        // Stage Definitions & Letter Metadata
+        // -------------------------------------------------------------------
+        const STAGES = {
+          1: { id: 1, label: "STAGE 1", letters: ["s", "a", "t", "p"] },
+          2: { id: 2, label: "STAGE 2", letters: ["s", "a", "t", "p", "i", "n"] },
+        };
+
+        const LETTER_META = {
+          s: {
+            char: "s",
+            cueWord: "snake",
+            fill: "#3fe070",
+            glow: "#a8ffbf",
+            rim: "#e4ffec",
+            ink: "#0b2416",
+            tts: "ssssss",
+            rate: 0.76,
+            pitch: 1.12,
+            vol: 0.88,
+          },
+          a: {
+            char: "a",
+            cueWord: "apple",
+            fill: "#ff5ca8",
+            glow: "#ffa6d2",
+            rim: "#ffe0f0",
+            ink: "#2a081b",
+            tts: "ah",
+            rate: 1.02,
+            pitch: 1.16,
+            vol: 0.96,
+          },
+          t: {
+            char: "t",
+            cueWord: "tap",
+            fill: "#38d9ff",
+            glow: "#a3efff",
+            rim: "#e3faff",
+            ink: "#07222e",
+            tts: "tuh",
+            rate: 1.48,
+            pitch: 1.12,
+            vol: 0.52,
+          },
+          p: {
+            char: "p",
+            cueWord: "pan",
+            fill: "#ffe14d",
+            glow: "#fff2a6",
+            rim: "#fffbe0",
+            ink: "#2b2004",
+            tts: "puh",
+            rate: 1.48,
+            pitch: 1.08,
+            vol: 0.52,
+          },
+          i: {
+            char: "i",
+            cueWord: "igloo",
+            fill: "#b57bff",
+            glow: "#ddc2ff",
+            rim: "#f5ebff",
+            ink: "#1c0b33",
+            tts: "ih",
+            rate: 1.0,
+            pitch: 1.18,
+            vol: 0.96,
+          },
+          n: {
+            char: "n",
+            cueWord: "net",
+            fill: "#ff9f43",
+            glow: "#ffd19e",
+            rim: "#fff2e3",
+            ink: "#2b1404",
+            tts: "nuh",
+            rate: 1.24,
+            pitch: 1.08,
+            vol: 0.54,
+          },
+        };
+
+        // -------------------------------------------------------------------
+        // Custom Vector Lowercase Letter Paths (guaranteed single-story 'a')
+        // Normalized around [-0.45..0.45] x [-0.82..0.86]
+        // -------------------------------------------------------------------
+        function arcPts(cx, cy, rx, ry, startAng, endAng, samples) {
+          const pts = [];
+          for (let i = 0; i <= samples; i++) {
+            const a = startAng + (i / samples) * (endAng - startAng);
+            pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]);
+          }
+          return pts;
+        }
+
+        function bezierPts(p0, p1, p2, p3, samples) {
+          const pts = [];
+          for (let i = 0; i <= samples; i++) {
+            const t = i / samples;
+            const mt = 1 - t;
+            pts.push([
+              mt * mt * mt * p0[0] + 3 * mt * mt * t * p1[0] + 3 * mt * t * t * p2[0] + t * t * t * p3[0],
+              mt * mt * mt * p0[1] + 3 * mt * mt * t * p1[1] + 3 * mt * t * t * p2[1] + t * t * t * p3[1],
+            ]);
+          }
+          return pts;
+        }
+
+        const LETTER_PATHS = {
+          s: [
+            {
+              pts: [
+                ...bezierPts([0.34, -0.36], [0.22, -0.66], [-0.38, -0.66], [-0.34, -0.24], 16),
+                ...bezierPts([-0.34, -0.24], [-0.30, 0.04], [0.36, 0.02], [0.36, 0.34], 16).slice(1),
+                ...bezierPts([0.36, 0.34], [0.36, 0.68], [-0.24, 0.70], [-0.36, 0.40], 16).slice(1),
+              ],
+            },
+          ],
+          a: [
+            // Single-story round belly
+            { pts: arcPts(-0.04, 0.08, 0.38, 0.44, -0.18 * Math.PI, -2.18 * Math.PI, 36) },
+            // Right vertical down-stem
+            { pts: [[0.34, -0.36], [0.34, 0.54]] },
+          ],
+          t: [
+            // Top-to-bottom stem with gentle bottom curve
+            {
+              pts: [
+                [-0.04, -0.74],
+                [-0.04, 0.34],
+                ...arcPts(0.14, 0.34, 0.18, 0.20, Math.PI, 0.34 * Math.PI, 14),
+              ],
+            },
+            // Horizontal crossbar
+            { pts: [[-0.36, -0.24], [0.32, -0.24]] },
+          ],
+          p: [
+            // Down-stem with descender
+            { pts: [[-0.32, -0.44], [-0.32, 0.80]] },
+            // Clockwise round loop
+            { pts: arcPts(0.02, -0.02, 0.37, 0.40, -0.74 * Math.PI, 0.74 * Math.PI, 32) },
+          ],
+          i: [
+            // Short vertical stem
+            { pts: [[0, -0.18], [0, 0.54]] },
+            // Dot
+            { dot: [0, -0.54] },
+          ],
+          n: [
+            // Left down-stem
+            { pts: [[-0.34, -0.38], [-0.34, 0.54]] },
+            // Arch up and down right leg
+            {
+              pts: [
+                [-0.34, -0.06],
+                ...arcPts(0, -0.06, 0.34, 0.32, Math.PI, 2 * Math.PI, 24),
+                [0.34, 0.54],
+              ],
+            },
+          ],
+        };
+
+        function drawVectorLetter(ch, cx, cy, scale, strokeColor, lineWidth, outlineColor) {
+          const strokes = LETTER_PATHS[ch];
+          if (!strokes) return;
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+
+          const renderPass = (color, lw) => {
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color;
+            ctx.lineWidth = lw;
+            for (const s of strokes) {
+              if (s.dot) {
+                ctx.beginPath();
+                ctx.arc(s.dot[0] * scale, s.dot[1] * scale, lw * 0.62, 0, Math.PI * 2);
+                ctx.fill();
+              } else if (s.pts && s.pts.length >= 2) {
+                ctx.beginPath();
+                ctx.moveTo(s.pts[0][0] * scale, s.pts[0][1] * scale);
+                for (let i = 1; i < s.pts.length; i++) {
+                  ctx.lineTo(s.pts[i][0] * scale, s.pts[i][1] * scale);
+                }
+                ctx.stroke();
+              }
+            }
+          };
+
+          if (outlineColor) {
+            renderPass(outlineColor, lineWidth + Math.max(4, lineWidth * 0.42));
+          }
+          renderPass(strokeColor, lineWidth);
+          ctx.restore();
+        }
+
+        // -------------------------------------------------------------------
+        // Procedural Pixel-Art Visual Cues (12x12 grids)
+        // s=snake, a=apple, t=tap, p=pan, i=igloo, n=net
+        // -------------------------------------------------------------------
+        const CUE_SPRITES = {
+          s: {
+            palette: { G: "#3fe070", D: "#1d8f44", Y: "#ffe14d", R: "#ff4d6d", W: "#ffffff", K: "#120b2e" },
+            rows: [
+              "....GGGG....",
+              "...GWGKGG...",
+              "..GGGGGGGG..",
+              ".R.GGGGDD...",
+              "...GGDD.....",
+              "....GGGGGG..",
+              "......GGDDG.",
+              ".....GGDDGG.",
+              "..GGGGDDGG..",
+              ".GGYGGGGG...",
+              "..GGGGGG....",
+              "............",
+            ],
+          },
+          a: {
+            palette: { R: "#ff3b6b", L: "#ff85a3", D: "#b81d48", G: "#52f277", B: "#9c6236" },
+            rows: [
+              "......BB....",
+              ".....BGGG...",
+              ".....BGG....",
+              "..RRR..RRR..",
+              ".RLLRRRRRRR.",
+              ".RLRRRRRRDR.",
+              ".RRRRRRRRDR.",
+              ".RRRRRRRRDR.",
+              ".RRRRRRRDRR.",
+              "..RRRRRRDR..",
+              "...RRDRRR...",
+              "....R..R....",
+            ],
+          },
+          t: {
+            palette: { M: "#c8e0f4", S: "#7ba7cc", H: "#ffffff", C: "#38d9ff", B: "#1e90ff" },
+            rows: [
+              "...HHHHHH...",
+              ".....MM.....",
+              "....MMMM....",
+              "MMMMMMMMS...",
+              "MHHHHMMMMS..",
+              "MMMMMMMMMS..",
+              ".......MMS..",
+              ".......CC...",
+              "......CCCC..",
+              "......CBBC..",
+              ".......CC...",
+              "............",
+            ],
+          },
+          p: {
+            palette: { D: "#3b4259", M: "#64708f", L: "#a6b4d4", W: "#ffffff", Y: "#ffe14d", O: "#ff9f43" },
+            rows: [
+              "............",
+              ".....DDDD...",
+              "...DDMMMMDD.",
+              "..DMMWWWWMMD",
+              "..DMWWYYWWMD",
+              ".DMMWYYYYWMD",
+              "DDMDMWYYOWMD",
+              "DLD.DMWWWWMD",
+              "DD...DDMMDD.",
+              ".......DD...",
+              "............",
+              "............",
+            ],
+          },
+          i: {
+            palette: { W: "#eef9ff", B: "#8fd8ff", C: "#4bb8f0", D: "#1d2754" },
+            rows: [
+              "............",
+              "....WWWW....",
+              "..WWBWWBWW..",
+              ".WWBBBBBBWW.",
+              ".WBBWWWWBBW.",
+              "WBBBBBBBBBBW",
+              "WBWWDDDDWWBW",
+              "WBBDDDDDDBBW",
+              "WBWDDDDDDWBW",
+              "CCCCCCCCCCCC",
+              "BBBBBBBBBBBB",
+              "............",
+            ],
+          },
+          n: {
+            palette: { B: "#c88a4b", D: "#8a5627", C: "#38d9ff", W: "#d8f8ff", O: "#ff9f43" },
+            rows: [
+              "....OOOO....",
+              "..OOCCCCOO..",
+              ".OCWCWCWCWO.",
+              ".OCCWCWCWCO.",
+              ".OCWCWCWCWO.",
+              "..OCCCCCCOO.",
+              "...OOCCOO...",
+              ".....BB.....",
+              "....BBD.....",
+              "...BBD......",
+              "..BBD.......",
+              ".BD.........",
+            ],
+          },
+        };
+
+        function drawPixelSprite(key, cx, cy, size) {
+          const sprite = CUE_SPRITES[key];
+          if (!sprite) return;
+          const rows = sprite.rows;
+          const n = rows.length;
+          const cell = size / n;
+          const x0 = cx - size / 2;
+          const y0 = cy - size / 2;
+          for (let r = 0; r < n; r++) {
+            const row = rows[r];
+            for (let c = 0; c < row.length; c++) {
+              const ch = row[c];
+              if (ch === ".") continue;
+              const col = sprite.palette[ch];
+              if (!col) continue;
+              ctx.fillStyle = col;
+              ctx.fillRect(
+                Math.floor(x0 + c * cell),
+                Math.floor(y0 + r * cell),
+                Math.ceil(cell),
+                Math.ceil(cell)
+              );
+            }
+          }
+        }
+
+        // -------------------------------------------------------------------
+        // Persistence
+        // -------------------------------------------------------------------
+        function loadStage() {
+          try {
+            const raw = parseInt(localStorage.getItem(STORAGE_STAGE), 10);
+            return raw === 2 ? 2 : 1;
+          } catch (_) {
+            return 1;
+          }
+        }
+
+        function saveStage(stageId) {
+          try {
+            localStorage.setItem(STORAGE_STAGE, String(stageId));
+          } catch (_) {}
+        }
+
+        function loadStars() {
+          try {
+            const raw = parseInt(localStorage.getItem(STORAGE_STARS), 10);
+            return Number.isFinite(raw) && raw > 0 ? raw : 0;
+          } catch (_) {
+            return 0;
+          }
+        }
+
+        function saveStars(val) {
+          try {
+            localStorage.setItem(STORAGE_STARS, String(val));
+          } catch (_) {}
+        }
+
+        // -------------------------------------------------------------------
+        // Web Audio & Phonics Sound Engine (Pure Letter Sounds)
+        // -------------------------------------------------------------------
+        let audioCtx = null;
+        let hasUserGesture = false;
+        let muted = false;
+        let preferredVoice = null;
+        let speechTimer = null;
+        let speakerPulse = 0;
+        let noiseBuffer = null;
+
+        const NOTES = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99];
+        let noteIdx = 0;
+
+        function ensureAudio() {
+          hasUserGesture = true;
+          if (!audioCtx) {
+            const AudioCtor = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtor) {
+              try {
+                audioCtx = new AudioCtor();
+              } catch (_) {
+                audioCtx = null;
+              }
+            }
+          }
+          if (audioCtx && audioCtx.state === "suspended") {
+            audioCtx.resume().catch(() => {});
+          }
+        }
+
+        function getNoiseBuffer() {
+          if (!audioCtx) return null;
+          if (noiseBuffer) return noiseBuffer;
+          const len = Math.floor(audioCtx.sampleRate * 0.7);
+          const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+          const data = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) {
+            data[i] = Math.random() * 2 - 1;
+          }
+          noiseBuffer = buf;
+          return noiseBuffer;
+        }
+
+        function pickVoice() {
+          if (!window.speechSynthesis || typeof window.speechSynthesis.getVoices !== "function") return null;
+          const voices = window.speechSynthesis.getVoices();
+          if (!voices || !voices.length) return null;
+          const en = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith("en"));
+          return (
+            en.find((v) => /samantha|google us english|aria|jenny|karen|moira|tessa/i.test(v.name)) ||
+            en[0] ||
+            voices[0]
+          );
+        }
+
+        if (window.speechSynthesis && typeof window.speechSynthesis.addEventListener === "function") {
+          window.speechSynthesis.addEventListener("voiceschanged", () => {
+            preferredVoice = pickVoice();
+          });
+        }
+
+        function cancelSpeech() {
+          if (speechTimer) {
+            clearTimeout(speechTimer);
+            speechTimer = null;
+          }
+          if (!window.speechSynthesis) return;
+          try {
+            window.speechSynthesis.cancel();
+          } catch (_) {}
+        }
+
+        // Synthesized phonetic acoustics that layer cleanly with TTS and act as fallback
+        function playPhonemeSynth(ch, soft) {
+          if (muted || !hasUserGesture || !audioCtx) return;
+          const ac = audioCtx;
+          const now = ac.currentTime;
+          const gainScale = soft ? 0.65 : 1.0;
+
+          if (ch === "s") {
+            // Pure continuous airy sibilant "ssss"
+            const buf = getNoiseBuffer();
+            if (!buf) return;
+            const src = ac.createBufferSource();
+            src.buffer = buf;
+            const hp = ac.createBiquadFilter();
+            hp.type = "highpass";
+            hp.frequency.setValueAtTime(4200, now);
+            const bp = ac.createBiquadFilter();
+            bp.type = "bandpass";
+            bp.frequency.setValueAtTime(6000, now);
+            bp.Q.setValueAtTime(1.4, now);
+            const g = ac.createGain();
+            g.gain.setValueAtTime(0.0001, now);
+            g.gain.linearRampToValueAtTime(0.14 * gainScale, now + 0.05);
+            g.gain.setValueAtTime(0.13 * gainScale, now + 0.34);
+            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
+            src.connect(hp);
+            hp.connect(bp);
+            bp.connect(g);
+            g.connect(ac.destination);
+            src.start(now);
+            src.stop(now + 0.5);
+          } else if (ch === "t") {
+            // Crisp unvoiced alveolar burst "t"
+            const buf = getNoiseBuffer();
+            if (!buf) return;
+            const src = ac.createBufferSource();
+            src.buffer = buf;
+            const hp = ac.createBiquadFilter();
+            hp.type = "bandpass";
+            hp.frequency.setValueAtTime(4600, now);
+            hp.Q.setValueAtTime(1.8, now);
+            const g = ac.createGain();
+            g.gain.setValueAtTime(0.0001, now);
+            g.gain.linearRampToValueAtTime(0.24 * gainScale, now + 0.006);
+            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
+            src.connect(hp);
+            hp.connect(g);
+            g.connect(ac.destination);
+            src.start(now);
+            src.stop(now + 0.065);
+          } else if (ch === "p") {
+            // Crisp unvoiced bilabial puff "p"
+            const buf = getNoiseBuffer();
+            if (!buf) return;
+            const src = ac.createBufferSource();
+            src.buffer = buf;
+            const bp = ac.createBiquadFilter();
+            bp.type = "bandpass";
+            bp.frequency.setValueAtTime(950, now);
+            bp.frequency.exponentialRampToValueAtTime(420, now + 0.06);
+            bp.Q.setValueAtTime(1.2, now);
+            const g = ac.createGain();
+            g.gain.setValueAtTime(0.0001, now);
+            g.gain.linearRampToValueAtTime(0.26 * gainScale, now + 0.008);
+            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.068);
+            src.connect(bp);
+            bp.connect(g);
+            g.connect(ac.destination);
+            src.start(now);
+            src.stop(now + 0.08);
+          } else if (ch === "n") {
+            // Warm continuous voiced nasal hum "nnnn"
+            const osc = ac.createOscillator();
+            const sub = ac.createOscillator();
+            osc.type = "triangle";
+            sub.type = "sine";
+            osc.frequency.setValueAtTime(220, now);
+            sub.frequency.setValueAtTime(220, now);
+            const lp = ac.createBiquadFilter();
+            lp.type = "lowpass";
+            lp.frequency.setValueAtTime(520, now);
+            const g = ac.createGain();
+            g.gain.setValueAtTime(0.0001, now);
+            g.gain.linearRampToValueAtTime(0.14 * gainScale, now + 0.04);
+            g.gain.setValueAtTime(0.12 * gainScale, now + 0.28);
+            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
+            osc.connect(lp);
+            sub.connect(lp);
+            lp.connect(g);
+            g.connect(ac.destination);
+            osc.start(now);
+            sub.start(now);
+            osc.stop(now + 0.44);
+            sub.stop(now + 0.44);
+          } else {
+            // Gentle chime fallback for vowels if TTS is absent
+            if (!window.speechSynthesis) {
+              playTone(ch === "a" ? 440 : 587.33, ch === "a" ? 460 : 620, 0.18, "triangle", 0.14 * gainScale, 0);
+            }
+          }
+        }
+
+        function speakPhonic(ch, opts) {
+          if (muted || !hasUserGesture) return;
+          const meta = LETTER_META[ch];
+          if (!meta) return;
+          const soft = !!(opts && opts.soft);
+          if (!soft) {
+            speakerPulse = 1.0;
+          }
+          playPhonemeSynth(ch, soft);
+
+          if (!("speechSynthesis" in window) || typeof window.SpeechSynthesisUtterance !== "function") {
+            return;
+          }
+          try {
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(meta.tts);
+            if (!preferredVoice) preferredVoice = pickVoice();
+            if (preferredVoice) u.voice = preferredVoice;
+            u.lang = (preferredVoice && preferredVoice.lang) || "en-US";
+            u.rate = meta.rate;
+            u.pitch = meta.pitch;
+            u.volume = soft ? Math.max(0.32, meta.vol * 0.65) : meta.vol;
+            window.speechSynthesis.speak(u);
+          } catch (_) {}
+        }
+
+        function playTone(f0, f1, dur, type, vol, delay) {
+          if (muted || !hasUserGesture || !audioCtx) return;
+          const t0 = audioCtx.currentTime + (delay || 0);
+          const osc = audioCtx.createOscillator();
+          const g = audioCtx.createGain();
+          osc.type = type || "sine";
+          osc.frequency.setValueAtTime(f0, t0);
+          if (f1 && f1 !== f0) {
+            osc.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
+          }
+          g.gain.setValueAtTime(0.0001, t0);
+          g.gain.linearRampToValueAtTime(vol || 0.16, t0 + Math.min(0.02, dur * 0.25));
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+          osc.connect(g);
+          g.connect(audioCtx.destination);
+          osc.start(t0);
+          osc.stop(t0 + dur + 0.02);
+        }
+
+        function playPopChime() {
+          const f = NOTES[noteIdx++ % NOTES.length];
+          playTone(f * 0.8, f * 1.65, 0.14, "sine", 0.2, 0);
+          playTone(f * 2.0, f * 2.1, 0.18, "triangle", 0.11, 0.02);
+        }
+
+        function playSoftWobble() {
+          playTone(320, 250, 0.11, "sine", 0.12, 0);
+          playTone(250, 290, 0.11, "triangle", 0.09, 0.09);
+        }
+
+        function playStartArp() {
+          [261.63, 329.63, 392.0, 523.25].forEach((f, i) => {
+            playTone(f, f, 0.12, "triangle", 0.13, i * 0.055);
+          });
+        }
+
+        function playCelebrationFanfare() {
+          const seq = [392.0, 523.25, 659.25, 783.99, 659.25, 1046.5];
+          seq.forEach((f, i) => {
+            playTone(f, f, i === seq.length - 1 ? 0.36 : 0.14, "triangle", 0.15, i * 0.09);
+          });
+        }
+
+        function announce(text) {
+          if (!liveStatus) return;
+          liveStatus.textContent = "";
+          requestAnimationFrame(() => {
+            liveStatus.textContent = text;
+          });
+        }
+
+        // -------------------------------------------------------------------
+        // Game State
+        // -------------------------------------------------------------------
+        let W = 320;
+        let H = 320;
+        let dpr = 1;
+
+        // "title" | "playing" | "cue" | "celebrate" | "paused"
+        let state = "title";
+        let stateBeforePause = "playing";
+        let activeStage = loadStage();
+        let totalStars = loadStars();
+        let sessionStars = 0;
+        let elapsed = 0;
+
+        let targetLetter = "s";
+        let lastTarget = "";
+        let bubbles = [];
+        let particles = [];
+        let rings = [];
+        let confetti = [];
+        let starsBg = [];
+
+        // Popped cue banner state
+        let cueEffect = null; // { char, x, y, timer, maxTimer }
+        let celebrateTimer = 0;
+
+        // Single-pointer tracking
+        let activePointerId = null;
+
+        // Hit rects updated on draw/layout
+        let speakerBtn = { cx: 0, cy: 0, r: 36 };
+        let stage1Rect = { x: 0, y: 0, w: 0, h: 0 };
+        let stage2Rect = { x: 0, y: 0, w: 0, h: 0 };
+        let playBtnRect = { x: 0, y: 0, w: 0, h: 0 };
+
+        function initBackgroundStars() {
+          starsBg = [];
+          for (let i = 0; i < 42; i++) {
+            starsBg.push({
+              x: Math.random(),
+              y: Math.random(),
+              r: 1 + Math.random() * 2.2,
+              phase: Math.random() * Math.PI * 2,
+              speed: 1.1 + Math.random() * 2.0,
+            });
+          }
+        }
+
+        function resize() {
+          const rect = canvas.getBoundingClientRect();
+          W = Math.max(1, rect.width);
+          H = Math.max(1, rect.height);
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.width = Math.floor(W * dpr);
+          canvas.height = Math.floor(H * dpr);
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          updateSpeakerMetrics();
+          clampBubblesToPlayfield();
+        }
+
+        function getPlayfieldBounds() {
+          const minDim = Math.min(W, H);
+          const compact = W < 300;
+          const topMargin = compact ? 16 : Math.max(118, Math.min(156, H * 0.22));
+          const sidePad = Math.max(12, minDim * 0.03);
+          const bottomPad = Math.max(16, minDim * 0.04);
+          return {
+            left: sidePad,
+            right: W - sidePad,
+            top: topMargin,
+            bottom: H - bottomPad,
+          };
+        }
+
+        function updateSpeakerMetrics() {
+          const minDim = Math.min(W, H);
+          const r = Math.max(30, Math.min(46, minDim * 0.088));
+          const topY = Math.max(54, Math.min(82, H * 0.115));
+          speakerBtn = { cx: W / 2, cy: topY, r };
+        }
+
+        function clampBubblesToPlayfield() {
+          const bounds = state === "title" ? { left: 10, right: W - 10, top: 10, bottom: H - 10 } : getPlayfieldBounds();
+          for (const b of bubbles) {
+            b.x = Math.max(bounds.left + b.r, Math.min(bounds.right - b.r, b.x));
+            b.y = Math.max(bounds.top + b.r, Math.min(bounds.bottom - b.r, b.y));
+          }
+        }
+
+        function getBubbleRadius() {
+          const bounds = getPlayfieldBounds();
+          const availW = Math.max(120, bounds.right - bounds.left);
+          const availH = Math.max(120, bounds.bottom - bounds.top);
+          const areaMetric = Math.sqrt((availW * availH) / 14);
+          return Math.max(34, Math.min(74, areaMetric * 0.68));
+        }
+
+        function syncHud() {
+          const inPlay = state !== "title";
+          btnStage.hidden = !inPlay;
+          btnPause.hidden = !inPlay;
+
+          btnStage.firstElementChild.textContent = activeStage === 1 ? "S1" : "S2";
+          btnStage.setAttribute(
+            "aria-label",
+            activeStage === 1 ? "Stage 1 active (s a t p). Tap for Stage 2" : "Stage 2 active (s a t p i n). Tap for Stage 1"
+          );
+
+          btnPause.setAttribute("aria-pressed", String(state === "paused"));
+          btnPause.setAttribute("aria-label", state === "paused" ? "Resume game" : "Pause game");
+          btnPause.firstElementChild.textContent = state === "paused" ? "▶" : "II";
+
+          btnMute.setAttribute("aria-pressed", String(muted));
+          btnMute.setAttribute("aria-label", muted ? "Unmute sound" : "Mute sound");
+          btnMute.firstElementChild.textContent = muted ? "✕" : "♪";
+        }
+
+        // -------------------------------------------------------------------
+        // Spawning & Round Management
+        // -------------------------------------------------------------------
+        function seedAttractBubbles() {
+          bubbles = [];
+          const pool = STAGES[activeStage].letters;
+          const r = Math.max(26, Math.min(54, Math.min(W, H) * 0.11));
+          for (let i = 0; i < 6; i++) {
+            const ch = pool[i % pool.length];
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 22 + Math.random() * 20;
+            bubbles.push({
+              char: ch,
+              meta: LETTER_META[ch],
+              x: r + 12 + Math.random() * Math.max(20, W - (r + 12) * 2),
+              y: r + 12 + Math.random() * Math.max(20, H - (r + 12) * 2),
+              vx: Math.cos(angle) * speed,
+              vy: Math.sin(angle) * speed,
+              r,
+              wobbleTimer: 0,
+              popScale: 1,
+              phase: Math.random() * Math.PI * 2,
+            });
+          }
+        }
+
+        function shuffle(arr) {
+          const a = arr.slice();
+          for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+          }
+          return a;
+        }
+
+        function startRound(speakNow) {
+          cancelSpeech();
+          state = "playing";
+          cueEffect = null;
+          const pool = STAGES[activeStage].letters;
+
+          // Pick target letter avoiding immediate repeat
+          const candidates = pool.filter((c) => c !== lastTarget);
+          targetLetter = candidates[Math.floor(Math.random() * candidates.length)] || pool[0];
+          lastTarget = targetLetter;
+
+          // Build 4 bubbles (1 or 2 matching target + distractors from active stage)
+          const bubbleCount = W < 360 ? 3 : 4;
+          const matchCount = bubbleCount === 4 && Math.random() < 0.45 ? 2 : 1;
+          const distractors = shuffle(pool.filter((c) => c !== targetLetter));
+          const roundChars = [];
+          for (let i = 0; i < matchCount; i++) roundChars.push(targetLetter);
+          for (let i = 0; roundChars.length < bubbleCount; i++) {
+            roundChars.push(distractors[i % distractors.length]);
+          }
+          const finalChars = shuffle(roundChars);
+
+          const bounds = getPlayfieldBounds();
+          const r = getBubbleRadius();
+          const availW = Math.max(r * 2.2, bounds.right - bounds.left - r * 2);
+          const availH = Math.max(r * 2.2, bounds.bottom - bounds.top - r * 2);
+
+          bubbles = [];
+          finalChars.forEach((ch, idx) => {
+            // Place nicely separated initially
+            let bx = bounds.left + r + ((idx + 0.5) / finalChars.length) * availW;
+            let by = bounds.top + r + (0.25 + 0.5 * ((idx % 2 === 0 ? 0.25 : 0.75) + (Math.random() - 0.5) * 0.2)) * availH;
+            for (let tries = 0; tries < 24; tries++) {
+              const cx = bounds.left + r + Math.random() * availW;
+              const cy = bounds.top + r + Math.random() * availH;
+              const ok = bubbles.every((o) => Math.hypot(cx - o.x, cy - o.y) >= r * 2.25);
+              if (ok) {
+                bx = cx;
+                by = cy;
+                break;
+              }
+            }
+
+            const angle = Math.random() * Math.PI * 2;
+            const speed = Math.max(24, Math.min(48, Math.min(W, H) * 0.072)) * (0.85 + Math.random() * 0.3);
+            bubbles.push({
+              char: ch,
+              meta: LETTER_META[ch],
+              x: bx,
+              y: by,
+              vx: Math.cos(angle) * speed,
+              vy: Math.sin(angle) * speed,
+              r,
+              wobbleTimer: 0,
+              popScale: 0.2,
+              phase: Math.random() * Math.PI * 2,
+            });
+          });
+
+          syncHud();
+          announce(`Find the sound for letter ${targetLetter}`);
+          if (speakNow) {
+            speechTimer = setTimeout(() => {
+              if (state === "playing") {
+                speakPhonic(targetLetter);
+              }
+            }, 180);
+          }
+        }
+
+        function startGame() {
+          ensureAudio();
+          sessionStars = 0;
+          particles = [];
+          rings = [];
+          confetti = [];
+          playStartArp();
+          startRound(true);
+        }
+
+        function setStage(stageId) {
+          activeStage = stageId === 2 ? 2 : 1;
+          saveStage(activeStage);
+          if (state === "title") {
+            seedAttractBubbles();
+          } else {
+            startRound(true);
+          }
+          syncHud();
+        }
+
+        function spawnPopBurst(x, y, meta, r) {
+          rings.push({ x, y, r: r * 0.6, maxR: r * 2.2, alpha: 1, color: meta.rim });
+          const count = reducedMotion ? 10 : 22;
+          for (let i = 0; i < count; i++) {
+            const a = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.25;
+            const spd = (reducedMotion ? 55 : 95) + Math.random() * (reducedMotion ? 75 : 175);
+            particles.push({
+              x,
+              y,
+              vx: Math.cos(a) * spd,
+              vy: Math.sin(a) * spd - 20,
+              size: 5 + Math.random() * 6,
+              color: i % 3 === 0 ? "#ffffff" : i % 2 === 0 ? meta.fill : "#ffe14d",
+              life: 0.55 + Math.random() * 0.35,
+              maxLife: 0.9,
+              star: i % 2 === 0,
+            });
+          }
+        }
+
+        function startConfettiCelebration() {
+          state = "celebrate";
+          celebrateTimer = 2.4;
+          confetti = [];
+          const colors = ["#ff5ca8", "#38d9ff", "#ffe14d", "#66ff66", "#b57bff", "#ff9f43", "#ffffff"];
+          const count = reducedMotion ? 24 : 72;
+          for (let i = 0; i < count; i++) {
+            confetti.push({
+              x: Math.random() * W,
+              y: -20 - Math.random() * H * 0.5,
+              vx: (Math.random() - 0.5) * 90,
+              vy: 95 + Math.random() * 140,
+              w: 7 + Math.random() * 8,
+              h: 5 + Math.random() * 6,
+              rot: Math.random() * Math.PI * 2,
+              vrot: (Math.random() - 0.5) * 8,
+              color: colors[i % colors.length],
+            });
+          }
+          playCelebrationFanfare();
+          announce(`Hooray! ${sessionStars} stars!`);
+        }
+
+        function handleCorrectBubble(b, idx) {
+          bubbles.splice(idx, 1);
+          spawnPopBurst(b.x, b.y, b.meta, b.r);
+          playPopChime();
+
+          sessionStars += 1;
+          totalStars += 1;
+          saveStars(totalStars);
+
+          // Replay crisp phonic sound cleanly
+          cancelSpeech();
+          speechTimer = setTimeout(() => {
+            speakPhonic(b.char);
+          }, 90);
+
+          cueEffect = {
+            char: b.char,
+            meta: b.meta,
+            x: Math.max(96, Math.min(W - 96, b.x)),
+            y: Math.max(140, Math.min(H - 110, b.y)),
+            timer: 1.25,
+            maxTimer: 1.25,
+          };
+          state = "cue";
+          announce(`Pop! ${b.meta.cueWord}!`);
+        }
+
+        function handleWrongBubble(b) {
+          b.wobbleTimer = 0.55;
+          // Gentle bounce away from tap
+          b.vx = -b.vx * 1.05;
+          b.vy = -b.vy * 1.05;
+          playSoftWobble();
+
+          // Speak the tapped letter's sound softly for incidental learning, then re-prompt target
+          cancelSpeech();
+          speakPhonic(b.char, { soft: true });
+          speechTimer = setTimeout(() => {
+            if (state === "playing") {
+              speakPhonic(targetLetter);
+            }
+          }, 820);
+        }
+
+        // -------------------------------------------------------------------
+        // Pointer Input (Touch-First, Single Active Pointer)
+        // -------------------------------------------------------------------
+        function inRect(x, y, r) {
+          return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+        }
+
+        function handlePointerDown(e) {
+          if (e.pointerType === "mouse" && e.button !== 0) return;
+          e.preventDefault();
+          ensureAudio();
+
+          if (activePointerId !== null && activePointerId !== e.pointerId) return;
+          activePointerId = e.pointerId;
+          try {
+            canvas.setPointerCapture(e.pointerId);
+          } catch (_) {}
+
+          const rect = canvas.getBoundingClientRect();
+          const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
+
+          if (state === "title") {
+            if (inRect(px, py, stage1Rect)) {
+              playTone(440, 520, 0.09, "triangle", 0.14, 0);
+              setStage(1);
+              return;
+            }
+            if (inRect(px, py, stage2Rect)) {
+              playTone(523.25, 659.25, 0.09, "triangle", 0.14, 0);
+              setStage(2);
+              return;
+            }
+            startGame();
+            return;
+          }
+
+          if (state === "paused") {
+            state = stateBeforePause === "paused" ? "playing" : stateBeforePause;
+            syncHud();
+            if (state === "playing") {
+              speakPhonic(targetLetter);
+            }
+            return;
+          }
+
+          if (state === "celebrate") {
+            if (celebrateTimer < 1.8) {
+              startRound(true);
+            }
+            return;
+          }
+
+          // Big Speaker / Hear Again button
+          const dxS = px - speakerBtn.cx;
+          const dyS = py - speakerBtn.cy;
+          if (dxS * dxS + dyS * dyS <= (speakerBtn.r * 1.25) * (speakerBtn.r * 1.25)) {
+            cancelSpeech();
+            speakPhonic(targetLetter);
+            return;
+          }
+
+          if (state !== "playing") return;
+
+          // Check bubbles topmost first with generous toddler hitbox (1.28x radius)
+          for (let i = bubbles.length - 1; i >= 0; i--) {
+            const b = bubbles[i];
+            const dx = px - b.x;
+            const dy = py - b.y;
+            const hitR = b.r * 1.28;
+            if (dx * dx + dy * dy <= hitR * hitR) {
+              if (b.char === targetLetter) {
+                handleCorrectBubble(b, i);
+              } else {
+                handleWrongBubble(b);
+              }
+              return;
+            }
+          }
+        }
+
+        function releasePointer(e) {
+          if (activePointerId === e.pointerId) {
+            activePointerId = null;
+          }
+        }
+
+        function pauseIfActive() {
+          if (state === "playing" || state === "cue" || state === "celebrate") {
+            stateBeforePause = state;
+            state = "paused";
+            activePointerId = null;
+            cancelSpeech();
+            syncHud();
+          }
+        }
+
+        // HUD Button listeners
+        btnStage.addEventListener("click", (e) => {
+          e.stopPropagation();
+          ensureAudio();
+          playTone(440, 587.33, 0.1, "triangle", 0.14, 0);
+          setStage(activeStage === 1 ? 2 : 1);
+        });
+
+        btnPause.addEventListener("click", (e) => {
+          e.stopPropagation();
+          ensureAudio();
+          if (state === "paused") {
+            state = stateBeforePause === "paused" ? "playing" : stateBeforePause;
+            syncHud();
+            if (state === "playing") speakPhonic(targetLetter);
+          } else {
+            pauseIfActive();
+          }
+        });
+
+        btnMute.addEventListener("click", (e) => {
+          e.stopPropagation();
+          ensureAudio();
+          muted = !muted;
+          if (muted) cancelSpeech();
+          syncHud();
+        });
+
+        canvas.addEventListener("pointerdown", handlePointerDown);
+        canvas.addEventListener("pointerup", releasePointer);
+        canvas.addEventListener("pointercancel", releasePointer);
+        canvas.addEventListener("lostpointercapture", releasePointer);
+
+        window.addEventListener("blur", pauseIfActive);
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) pauseIfActive();
+        });
+        window.addEventListener("resize", resize);
+
+        // -------------------------------------------------------------------
+        // Update Loop (clamped dt)
+        // -------------------------------------------------------------------
+        function updateBubbles(dt, bounds) {
+          for (const b of bubbles) {
+            b.popScale = Math.min(1, b.popScale + dt * 4.5);
+            if (b.wobbleTimer > 0) {
+              b.wobbleTimer = Math.max(0, b.wobbleTimer - dt);
+            }
+            const spdScale = reducedMotion ? 0.35 : 1;
+            b.x += b.vx * dt * spdScale;
+            b.y += b.vy * dt * spdScale;
+
+            // Soft edge bouncing
+            if (b.x - b.r < bounds.left) {
+              b.x = bounds.left + b.r;
+              b.vx = Math.abs(b.vx);
+            } else if (b.x + b.r > bounds.right) {
+              b.x = bounds.right - b.r;
+              b.vx = -Math.abs(b.vx);
+            }
+            if (b.y - b.r < bounds.top) {
+              b.y = bounds.top + b.r;
+              b.vy = Math.abs(b.vy);
+            } else if (b.y + b.r > bounds.bottom) {
+              b.y = bounds.bottom - b.r;
+              b.vy = -Math.abs(b.vy);
+            }
+          }
+
+          // Gentle bubble-to-bubble separation so targets stay clearly legible
+          for (let i = 0; i < bubbles.length; i++) {
+            for (let j = i + 1; j < bubbles.length; j++) {
+              const a = bubbles[i];
+              const b = bubbles[j];
+              const dx = b.x - a.x;
+              const dy = b.y - a.y;
+              const dist = Math.hypot(dx, dy) || 0.01;
+              const minDist = a.r + b.r + 14;
+              if (dist < minDist) {
+                const nx = dx / dist;
+                const ny = dy / dist;
+                const overlap = (minDist - dist) * 0.5;
+                a.x -= nx * overlap;
+                a.y -= ny * overlap;
+                b.x += nx * overlap;
+                b.y += ny * overlap;
+
+                // Soft elastic velocity exchange along normal
+                const dvx = b.vx - a.vx;
+                const dvy = b.vy - a.vy;
+                const dot = dvx * nx + dvy * ny;
+                if (dot < 0) {
+                  a.vx += dot * nx;
+                  a.vy += dot * ny;
+                  b.vx -= dot * nx;
+                  b.vy -= dot * ny;
+                }
+              }
+            }
+          }
+        }
+
+        function update(dt) {
+          elapsed += dt;
+          if (speakerPulse > 0) {
+            speakerPulse = Math.max(0, speakerPulse - dt * 1.9);
+          }
+
+          // Update particles & rings
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vy += 170 * dt;
+            p.life -= dt;
+            if (p.life <= 0) particles.splice(i, 1);
+          }
+          for (let i = rings.length - 1; i >= 0; i--) {
+            const rg = rings[i];
+            rg.r += (rg.maxR - rg.r) * Math.min(1, dt * 10);
+            rg.alpha -= dt * 2.2;
+            if (rg.alpha <= 0) rings.splice(i, 1);
+          }
+
+          if (state === "title") {
+            updateBubbles(dt, { left: 12, right: W - 12, top: 12, bottom: H - 12 });
+            return;
+          }
+
+          if (state === "paused") return;
+
+          if (state === "playing") {
+            updateBubbles(dt, getPlayfieldBounds());
+          } else if (state === "cue") {
+            updateBubbles(dt, getPlayfieldBounds());
+            if (cueEffect) {
+              cueEffect.timer -= dt;
+              if (cueEffect.timer <= 0) {
+                cueEffect = null;
+                if (sessionStars > 0 && sessionStars % 5 === 0) {
+                  startConfettiCelebration();
+                } else {
+                  startRound(true);
+                }
+              }
+            }
+          } else if (state === "celebrate") {
+            for (const c of confetti) {
+              c.x += c.vx * dt;
+              c.y += c.vy * dt;
+              c.rot += c.vrot * dt;
+              if (c.y > H + 20) {
+                c.y = -16;
+                c.x = Math.random() * W;
+              }
+            }
+            celebrateTimer -= dt;
+            if (celebrateTimer <= 0) {
+              confetti = [];
+              startRound(true);
+            }
+          }
+        }
+
+        // -------------------------------------------------------------------
+        // Rendering
+        // -------------------------------------------------------------------
+        function drawRoundedBox(x, y, w, h, r, fill, stroke, lineWidth) {
+          const rr = Math.min(r, w / 2, h / 2);
+          ctx.beginPath();
+          ctx.moveTo(x + rr, y);
+          ctx.lineTo(x + w - rr, y);
+          ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+          ctx.lineTo(x + w, y + h - rr);
+          ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+          ctx.lineTo(x + rr, y + h);
+          ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+          ctx.lineTo(x, y + rr);
+          ctx.quadraticCurveTo(x, y, x + rr, y);
+          ctx.closePath();
+          if (fill) {
+            ctx.fillStyle = fill;
+            ctx.fill();
+          }
+          if (stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = lineWidth || 2.5;
+            ctx.stroke();
+          }
+        }
+
+        function drawStar(x, y, size, color, strokeColor) {
+          ctx.beginPath();
+          for (let i = 0; i < 5; i++) {
+            const a1 = (i * 2 * Math.PI) / 5 - Math.PI / 2;
+            const a2 = a1 + Math.PI / 5;
+            const rx = x + Math.cos(a1) * size;
+            const ry = y + Math.sin(a1) * size;
+            const ix = x + Math.cos(a2) * (size * 0.45);
+            const iy = y + Math.sin(a2) * (size * 0.45);
+            if (i === 0) ctx.moveTo(rx, ry);
+            else ctx.lineTo(rx, ry);
+            ctx.lineTo(ix, iy);
+          }
+          ctx.closePath();
+          ctx.fillStyle = color;
+          ctx.fill();
+          if (strokeColor) {
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+        }
+
+        function drawBackground() {
+          const grad = ctx.createLinearGradient(0, 0, 0, H);
+          grad.addColorStop(0, "#120b2e");
+          grad.addColorStop(0.55, "#1d1b52");
+          grad.addColorStop(1, "#123466");
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, W, H);
+
+          for (const s of starsBg) {
+            const tw = reducedMotion ? 0.5 : 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(elapsed * s.speed + s.phase));
+            ctx.fillStyle = `rgba(255, 255, 255, ${tw.toFixed(2)})`;
+            ctx.fillRect(Math.floor(s.x * W), Math.floor(s.y * H), Math.ceil(s.r), Math.ceil(s.r));
+          }
+
+          ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
+          for (let y = 0; y < H; y += 4) {
+            ctx.fillRect(0, y, W, 1);
+          }
+        }
+
+        function drawBubble(b) {
+          ctx.save();
+          const wobX = b.wobbleTimer > 0 ? Math.sin(b.wobbleTimer * 44) * 10 * (b.wobbleTimer / 0.55) : 0;
+          const floatY = reducedMotion ? 0 : Math.sin(elapsed * 2.2 + b.phase) * 3;
+          const bx = b.x + wobX;
+          const by = b.y + floatY;
+          const r = b.r * b.popScale;
+
+          // Outer neon halo
+          const glow = ctx.createRadialGradient(bx, by, r * 0.2, bx, by, r * 1.18);
+          glow.addColorStop(0, b.meta.fill + "55");
+          glow.addColorStop(0.75, b.meta.fill + "aa");
+          glow.addColorStop(1, b.meta.glow + "00");
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(bx, by, r * 1.18, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Glossy orb body
+          const body = ctx.createRadialGradient(bx - r * 0.3, by - r * 0.3, r * 0.08, bx, by, r);
+          body.addColorStop(0, "#ffffffd8");
+          body.addColorStop(0.32, b.meta.glow + "d4");
+          body.addColorStop(0.8, b.meta.fill + "d8");
+          body.addColorStop(1, b.meta.rim + "ee");
+          ctx.fillStyle = body;
+          ctx.beginPath();
+          ctx.arc(bx, by, r, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Crisp rim
+          ctx.lineWidth = Math.max(3, r * 0.065);
+          ctx.strokeStyle = b.meta.rim;
+          ctx.stroke();
+
+          // Specular highlight
+          ctx.fillStyle = "rgba(255, 255, 255, 0.72)";
+          ctx.beginPath();
+          ctx.ellipse(bx - r * 0.36, by - r * 0.36, r * 0.2, r * 0.11, -Math.PI / 4, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Custom single-story vector lowercase letter
+          const letterScale = r * 0.78;
+          const lw = Math.max(5.5, r * 0.145);
+          drawVectorLetter(b.char, bx, by + r * 0.02, letterScale, "#ffffff", lw, b.meta.ink);
+
+          ctx.restore();
+        }
+
+        function drawSpeakerButton() {
+          if (W < 300) return;
+          const { cx, cy, r } = speakerBtn;
+          const pulse = 1 + (speakerPulse > 0 ? Math.sin(speakerPulse * Math.PI) * 0.12 : Math.sin(elapsed * 2.6) * 0.03);
+          const rr = r * pulse;
+
+          ctx.save();
+          // Expanding wave ring when speaking
+          if (speakerPulse > 0) {
+            ctx.globalAlpha = speakerPulse * 0.75;
+            ctx.strokeStyle = "#38d9ff";
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r * (1.05 + (1 - speakerPulse) * 0.85), 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+          }
+
+          // Button body
+          const grad = ctx.createRadialGradient(cx - rr * 0.25, cy - rr * 0.25, 4, cx, cy, rr);
+          grad.addColorStop(0, "#5be8ff");
+          grad.addColorStop(1, "#1e6ef0");
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.lineWidth = 3.5;
+          ctx.strokeStyle = "#ffe14d";
+          ctx.stroke();
+
+          // Crisp vector speaker icon
+          ctx.fillStyle = "#ffffff";
+          const s = rr * 0.42;
+          ctx.beginPath();
+          ctx.moveTo(cx - s * 0.95, cy - s * 0.38);
+          ctx.lineTo(cx - s * 0.35, cy - s * 0.38);
+          ctx.lineTo(cx + s * 0.22, cy - s * 0.86);
+          ctx.lineTo(cx + s * 0.22, cy + s * 0.86);
+          ctx.lineTo(cx - s * 0.35, cy + s * 0.38);
+          ctx.lineTo(cx - s * 0.95, cy + s * 0.38);
+          ctx.closePath();
+          ctx.fill();
+
+          // Sound arcs
+          ctx.strokeStyle = "#ffe14d";
+          ctx.lineWidth = Math.max(2.5, rr * 0.085);
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.arc(cx + s * 0.26, cy, s * 0.48, -0.35 * Math.PI, 0.35 * Math.PI);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(cx + s * 0.26, cy, s * 0.82, -0.38 * Math.PI, 0.38 * Math.PI);
+          ctx.stroke();
+
+          // Short label underneath
+          ctx.font = `900 ${Math.max(10, Math.min(13, rr * 0.32))}px "Courier New", Courier, monospace`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText("HEAR AGAIN", cx, cy + r + 5);
+          ctx.restore();
+        }
+
+        function drawTopStarsHud() {
+          if (W < 300) return;
+          const pad = Math.max(12, Math.min(20, W * 0.03));
+          const starSize = Math.max(10, Math.min(15, Math.min(W, H) * 0.028));
+          const inGroup = sessionStars % 5;
+          const filled = state === "celebrate" ? 5 : inGroup;
+
+          ctx.save();
+          // Star count badge
+          const boxW = Math.min(176, Math.max(120, W * 0.34));
+          const boxH = 44;
+          drawRoundedBox(pad, pad, boxW, boxH, 14, "rgba(18, 11, 46, 0.8)", "#ffe14d", 2.5);
+
+          // 5-star mini progress row toward confetti celebration
+          const step = (boxW - 22) / 5;
+          for (let i = 0; i < 5; i++) {
+            const sx = pad + 11 + step * (i + 0.5);
+            const sy = pad + boxH / 2;
+            const isLit = i < filled;
+            drawStar(sx, sy, starSize * (isLit ? 1 : 0.78), isLit ? "#ffe14d" : "rgba(255,255,255,0.2)", isLit ? "#ff9f43" : null);
+          }
+
+          ctx.font = `900 12px "Courier New", Courier, monospace`;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "top";
+          ctx.fillStyle = "#a3efff";
+          ctx.fillText(`★ ${totalStars}  STAGE ${activeStage}`, pad + 4, pad + boxH + 5);
+          ctx.restore();
+        }
+
+        function drawCueBadge() {
+          if (!cueEffect) return;
+          const t = 1 - cueEffect.timer / cueEffect.maxTimer;
+          const scale = t < 0.18 ? 0.5 + (t / 0.18) * 0.58 : t > 0.82 ? 1 - ((t - 0.82) / 0.18) * 0.35 : 1.04 + Math.sin(t * 14) * 0.04;
+          const alpha = t > 0.82 ? Math.max(0, 1 - (t - 0.82) / 0.18) : 1;
+          const minDim = Math.min(W, H);
+          const cardSize = Math.max(124, Math.min(196, minDim * 0.36));
+
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.translate(W / 2, H * 0.56);
+          ctx.scale(scale, scale);
+
+          drawRoundedBox(
+            -cardSize / 2,
+            -cardSize / 2,
+            cardSize,
+            cardSize,
+            24,
+            "rgba(18, 11, 46, 0.94)",
+            cueEffect.meta.fill,
+            5
+          );
+
+          // Pixel art cue icon
+          drawPixelSprite(cueEffect.char, 0, -cardSize * 0.1, cardSize * 0.54);
+
+          // Lowercase letter + word underneath
+          drawVectorLetter(
+            cueEffect.char,
+            -cardSize * 0.24,
+            cardSize * 0.32,
+            cardSize * 0.16,
+            cueEffect.meta.fill,
+            Math.max(4, cardSize * 0.032),
+            "#0b071e"
+          );
+
+          ctx.font = `900 ${Math.max(16, Math.floor(cardSize * 0.14))}px "Courier New", Courier, monospace`;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(cueEffect.meta.cueWord, -cardSize * 0.04, cardSize * 0.32);
+          ctx.restore();
+        }
+
+        function drawCelebrationOverlay() {
+          if (state !== "celebrate") return;
+          ctx.save();
+          for (const c of confetti) {
+            ctx.save();
+            ctx.translate(c.x, c.y);
+            ctx.rotate(c.rot);
+            ctx.fillStyle = c.color;
+            ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
+            ctx.restore();
+          }
+
+          const minDim = Math.min(W, H);
+          const fontSize = Math.max(30, Math.min(64, minDim * 0.12));
+          const bounce = Math.sin(elapsed * 10) * 8;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${fontSize}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("HOORAY!", W / 2 + 4, H * 0.48 + bounce + 4);
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText("HOORAY!", W / 2, H * 0.48 + bounce);
+
+          for (let i = -2; i <= 2; i++) {
+            drawStar(W / 2 + i * Math.min(44, W * 0.12), H * 0.61 + Math.sin(elapsed * 7 + i) * 6, Math.min(18, minDim * 0.045), "#ffe14d", "#ff5ca8");
+          }
+          ctx.restore();
+        }
+
+        function drawEffects() {
+          for (const rg of rings) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, rg.alpha);
+            ctx.strokeStyle = rg.color;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(rg.x, rg.y, rg.r, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+          for (const p of particles) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+            if (p.star) {
+              drawStar(p.x, p.y, p.size, p.color);
+            } else {
+              ctx.fillStyle = p.color;
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, p.size * 0.55, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.restore();
+          }
+        }
+
+        function drawTitleOverlay() {
+          const minDim = Math.min(W, H);
+          const compact = W < 300;
+          const cx = W / 2;
+          const cy = H / 2;
+          const bob = reducedMotion ? 0 : Math.sin(elapsed * 3) * 5;
+
+          ctx.save();
+          // Soft dark backing veil for legible text over floating bubbles
+          ctx.fillStyle = "rgba(14, 9, 36, 0.48)";
+          ctx.fillRect(0, 0, W, H);
+
+          const titleSize = Math.max(26, Math.min(66, minDim * 0.13));
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${titleSize}px "Courier New", Courier, monospace`;
+
+          const titleY = compact ? cy - titleSize * 0.55 : Math.max(76, H * 0.25);
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("PHONICS POP", cx + 4, titleY + bob + 4);
+          ctx.fillStyle = "#ff5ca8";
+          ctx.fillText("PHONICS POP", cx, titleY + bob);
+
+          if (!compact) {
+            // Stage 1 / Stage 2 selector buttons
+            const gap = Math.max(12, Math.min(24, W * 0.035));
+            const btnW = Math.max(124, Math.min(200, (W - 48 - gap) / 2));
+            const btnH = Math.max(66, Math.min(84, H * 0.13));
+            const stageY = Math.max(titleY + titleSize * 0.85, H * 0.42);
+
+            stage1Rect = { x: cx - btnW - gap / 2, y: stageY, w: btnW, h: btnH };
+            stage2Rect = { x: cx + gap / 2, y: stageY, w: btnW, h: btnH };
+
+            [
+              { rect: stage1Rect, id: 1, title: "STAGE 1", chars: STAGES[1].letters },
+              { rect: stage2Rect, id: 2, title: "STAGE 2", chars: STAGES[2].letters },
+            ].forEach((item) => {
+              const selected = activeStage === item.id;
+              drawRoundedBox(
+                item.rect.x,
+                item.rect.y,
+                item.rect.w,
+                item.rect.h,
+                18,
+                selected ? "rgba(63, 224, 112, 0.28)" : "rgba(18, 11, 46, 0.84)",
+                selected ? "#66ff66" : "#6c72a8",
+                selected ? 4 : 2.5
+              );
+              ctx.font = `900 ${Math.max(13, Math.min(18, btnW * 0.115))}px "Courier New", Courier, monospace`;
+              ctx.fillStyle = selected ? "#ffe14d" : "#d0d6ff";
+              ctx.fillText(item.title, item.rect.x + item.rect.w / 2, item.rect.y + item.rect.h * 0.28);
+
+              const n = item.chars.length;
+              const innerW = item.rect.w - 24;
+              const step = innerW / n;
+              const lScale = Math.min(step * 0.48, item.rect.h * 0.21);
+              const ly = item.rect.y + item.rect.h * 0.68;
+              item.chars.forEach((ch, idx) => {
+                const lx = item.rect.x + 12 + step * (idx + 0.5);
+                drawVectorLetter(
+                  ch,
+                  lx,
+                  ly,
+                  lScale,
+                  selected ? "#ffffff" : "#99eeff",
+                  Math.max(2.4, lScale * 0.22),
+                  null
+                );
+              });
+            });
+
+            // Big PLAY button
+            const playW = Math.max(200, Math.min(280, W * 0.62));
+            const playH = Math.max(62, Math.min(78, H * 0.12));
+            const playY = Math.min(H - playH - 26, stageY + btnH + Math.max(22, H * 0.05));
+            playBtnRect = { x: cx - playW / 2, y: playY, w: playW, h: playH };
+
+            const pulse = reducedMotion ? 1 : 1 + Math.sin(elapsed * 4.2) * 0.035;
+            ctx.save();
+            ctx.translate(cx, playY + playH / 2);
+            ctx.scale(pulse, pulse);
+            drawRoundedBox(-playW / 2, -playH / 2, playW, playH, 22, "#ff5ca8", "#ffe14d", 4);
+            ctx.font = `900 ${Math.max(22, Math.min(30, playH * 0.44))}px "Courier New", Courier, monospace`;
+            ctx.fillStyle = "#120b2e";
+            ctx.fillText("▶ TAP TO PLAY", 2, 2);
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText("▶ TAP TO PLAY", 0, 0);
+            ctx.restore();
+          } else {
+            // Compact gallery preview badge
+            stage1Rect = { x: 0, y: 0, w: 0, h: 0 };
+            stage2Rect = { x: 0, y: 0, w: 0, h: 0 };
+            const bw = Math.min(W * 0.78, 180);
+            const bh = 38;
+            playBtnRect = { x: cx - bw / 2, y: cy + 20, w: bw, h: bh };
+            drawRoundedBox(playBtnRect.x, playBtnRect.y, bw, bh, 14, "#ff5ca8", "#ffe14d", 3);
+            ctx.font = `900 15px "Courier New", Courier, monospace`;
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText("▶ TAP TO PLAY", cx, playBtnRect.y + bh / 2);
+          }
+
+          ctx.restore();
+        }
+
+        function drawPauseOverlay() {
+          if (state !== "paused") return;
+          ctx.save();
+          ctx.fillStyle = "rgba(12, 8, 30, 0.72)";
+          ctx.fillRect(0, 0, W, H);
+          const minDim = Math.min(W, H);
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${Math.max(28, Math.min(54, minDim * 0.11))}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText("PAUSED", W / 2, H * 0.44);
+
+          const bw = Math.max(190, Math.min(260, W * 0.6));
+          const bh = 62;
+          drawRoundedBox(W / 2 - bw / 2, H * 0.54, bw, bh, 18, "#38d9ff", "#ffffff", 3.5);
+          ctx.font = `900 22px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("▶ TAP TO PLAY", W / 2, H * 0.54 + bh / 2);
+          ctx.restore();
+        }
+
+        function draw() {
+          drawBackground();
+
+          for (const b of bubbles) {
+            drawBubble(b);
+          }
+
+          drawEffects();
+
+          if (state === "title") {
+            drawTitleOverlay();
+          } else {
+            drawTopStarsHud();
+            drawSpeakerButton();
+            drawCueBadge();
+            drawCelebrationOverlay();
+            drawPauseOverlay();
+          }
+        }
+
+        // -------------------------------------------------------------------
+        // Main Animation Loop
+        // -------------------------------------------------------------------
+        let lastTime = performance.now();
+        function loop(now) {
+          const dt = Math.min(0.05, Math.max(0, (now - lastTime) / 1000));
+          lastTime = now;
+          update(dt);
+          draw();
+          requestAnimationFrame(loop);
+        }
+
+        initBackgroundStars();
+        resize();
+        seedAttractBubbles();
+        syncHud();
+        requestAnimationFrame(loop);
+      })();
+    </script>
+  </body>
+</html>

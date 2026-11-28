@@ -1,0 +1,1919 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Phonics Trace</title>
+    <meta
+      name="description"
+      content="Toddler phonics tracing game: drag a finger along glowing neon paths to trace lowercase letters and hear their sounds."
+    />
+    <meta name="game:genre" content="Puzzle" />
+    <meta name="game:tags" content="phonics, toddlers, tracing, touch" />
+    <meta name="game:added" content="2026-11-28" />
+    <meta name="game:year" content="2026" />
+    <meta name="game:controls" content="Drag your finger along the glowing letter path" />
+    <meta name="game:author" content="Arcade Bot" />
+    <meta name="game:color" content="#38d9ff" />
+    <style>
+      :root {
+        --target-size: 44px;
+        --hud-bg: rgba(18, 11, 46, 0.82);
+        --hud-border: #38d9ff;
+        --hud-text: #ffffff;
+        --focus-ring: #ffe14d;
+      }
+
+      @media (pointer: coarse) {
+        :root {
+          --target-size: 48px;
+        }
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        font-family: "Courier New", Courier, monospace;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      main.stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        container: stage / inline-size;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+
+      #game {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        cursor: pointer;
+      }
+
+      .hud-bar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding-top: max(10px, env(safe-area-inset-top, 0px));
+        padding-right: max(10px, env(safe-area-inset-right, 0px));
+        padding-left: max(10px, env(safe-area-inset-left, 0px));
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      .hud-btn {
+        pointer-events: auto;
+        min-inline-size: var(--target-size);
+        min-block-size: var(--target-size);
+        padding: 4px 12px;
+        border-radius: 14px;
+        border: 2.5px solid var(--hud-border);
+        background: var(--hud-bg);
+        color: var(--hud-text);
+        font: 900 17px/1 "Courier New", Courier, monospace;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        cursor: pointer;
+        touch-action: manipulation;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4);
+        transition: transform 120ms ease, border-color 120ms ease, color 120ms ease;
+      }
+
+      .hud-btn:active {
+        transform: scale(0.94);
+      }
+
+      .hud-btn:focus-visible {
+        outline: 3px solid var(--focus-ring);
+        outline-offset: 3px;
+      }
+
+      .hud-btn--stage {
+        border-color: #66ff66;
+        color: #66ff66;
+      }
+
+      .hud-btn--pause {
+        border-color: #ffe14d;
+        color: #ffe14d;
+      }
+
+      .hud-btn[aria-pressed="true"] {
+        border-color: #ff5ca8;
+        color: #ff5ca8;
+      }
+
+      .hud-btn[hidden] {
+        display: none;
+      }
+
+      @container stage (inline-size < 300px) {
+        .hud-bar {
+          display: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hud-btn {
+          transition: none;
+        }
+      }
+
+      .visually-hidden:where(:not(:focus-within, :active)) {
+        position: absolute !important;
+        clip-path: inset(50%) !important;
+        overflow: hidden !important;
+        width: 1px !important;
+        height: 1px !important;
+        margin: -1px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        white-space: nowrap !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="stage">
+      <h1 class="visually-hidden">Phonics Trace</h1>
+      <canvas id="game" aria-label="Phonics Trace toddler letter tracing game"></canvas>
+
+      <div class="hud-bar" role="toolbar" aria-label="Game controls">
+        <button
+          id="btn-stage"
+          class="hud-btn hud-btn--stage"
+          type="button"
+          aria-label="Switch phonics stage"
+          hidden
+        >
+          <span aria-hidden="true">S1</span>
+        </button>
+        <button
+          id="btn-pause"
+          class="hud-btn hud-btn--pause"
+          type="button"
+          aria-label="Pause game"
+          aria-pressed="false"
+          hidden
+        >
+          <span aria-hidden="true">II</span>
+        </button>
+        <button
+          id="btn-mute"
+          class="hud-btn"
+          type="button"
+          aria-label="Mute sound"
+          aria-pressed="false"
+        >
+          <span aria-hidden="true">♪</span>
+        </button>
+      </div>
+
+      <div id="live-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+    </main>
+
+    <script>
+      (() => {
+        "use strict";
+
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
+        const btnStage = document.getElementById("btn-stage");
+        const btnPause = document.getElementById("btn-pause");
+        const btnMute = document.getElementById("btn-mute");
+        const liveStatus = document.getElementById("live-status");
+
+        const STORAGE_STAGE = "phonics-trace:stage";
+        const STORAGE_TRACED = "phonics-trace:traced";
+
+        const reducedMotionQuery = window.matchMedia
+          ? window.matchMedia("(prefers-reduced-motion: reduce)")
+          : { matches: false };
+        let reducedMotion = !!reducedMotionQuery.matches;
+        if (typeof reducedMotionQuery.addEventListener === "function") {
+          reducedMotionQuery.addEventListener("change", (ev) => {
+            reducedMotion = ev.matches;
+          });
+        }
+
+        // -------------------------------------------------------------------
+        // Geometry Builders for Ordered Early-Writing Lowercase Strokes
+        // -------------------------------------------------------------------
+        function resamplePath(rawPts, stepLen = 0.085) {
+          if (rawPts.length < 2) return rawPts.slice();
+          const dists = [0];
+          let total = 0;
+          for (let i = 1; i < rawPts.length; i++) {
+            total += Math.hypot(rawPts[i].x - rawPts[i - 1].x, rawPts[i].y - rawPts[i - 1].y);
+            dists.push(total);
+          }
+          const count = Math.max(8, Math.min(34, Math.round(total / stepLen)));
+          const out = [];
+          let seg = 0;
+          for (let i = 0; i <= count; i++) {
+            const target = (i / count) * total;
+            while (seg < dists.length - 2 && dists[seg + 1] < target) seg++;
+            const segLen = Math.max(1e-6, dists[seg + 1] - dists[seg]);
+            const lt = (target - dists[seg]) / segLen;
+            out.push({
+              x: rawPts[seg].x + (rawPts[seg + 1].x - rawPts[seg].x) * lt,
+              y: rawPts[seg].y + (rawPts[seg + 1].y - rawPts[seg].y) * lt,
+            });
+          }
+          return out;
+        }
+
+        function linePts(x1, y1, x2, y2) {
+          return resamplePath([
+            { x: x1, y: y1 },
+            { x: x2, y: y2 },
+          ]);
+        }
+
+        function arcPts(cx, cy, rx, ry, startAng, endAng, samples = 36) {
+          const pts = [];
+          for (let i = 0; i <= samples; i++) {
+            const a = startAng + (i / samples) * (endAng - startAng);
+            pts.push({ x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry });
+          }
+          return pts;
+        }
+
+        function bezierPts(p0, p1, p2, p3, samples = 20) {
+          const pts = [];
+          for (let i = 0; i <= samples; i++) {
+            const t = i / samples;
+            const mt = 1 - t;
+            pts.push({
+              x: mt * mt * mt * p0[0] + 3 * mt * mt * t * p1[0] + 3 * mt * t * t * p2[0] + t * t * t * p3[0],
+              y: mt * mt * mt * p0[1] + 3 * mt * mt * t * p1[1] + 3 * mt * t * t * p2[1] + t * t * t * p3[1],
+            });
+          }
+          return pts;
+        }
+
+        // -------------------------------------------------------------------
+        // Stage & Letter Catalog (Guaranteed Single-Story Lowercase 'a')
+        // -------------------------------------------------------------------
+        const STAGES = {
+          1: { id: 1, letters: ["s", "a", "t", "p"] },
+          2: { id: 2, letters: ["s", "a", "t", "p", "i", "n"] },
+        };
+
+        const LETTERS = {
+          s: {
+            char: "s",
+            cueWord: "snake",
+            fill: "#3fe070",
+            glow: "#a8ffbf",
+            rim: "#e4ffec",
+            tts: "ssssss",
+            rate: 0.76,
+            pitch: 1.12,
+            vol: 0.88,
+            strokes: [
+              {
+                pts: resamplePath([
+                  ...bezierPts([0.42, -0.44], [0.26, -0.78], [-0.46, -0.78], [-0.42, -0.28], 18),
+                  ...bezierPts([-0.42, -0.28], [-0.36, 0.06], [0.44, 0.04], [0.44, 0.42], 18).slice(1),
+                  ...bezierPts([0.44, 0.42], [0.44, 0.82], [-0.28, 0.84], [-0.44, 0.48], 18).slice(1),
+                ]),
+              },
+            ],
+          },
+          a: {
+            char: "a",
+            cueWord: "apple",
+            fill: "#ff5ca8",
+            glow: "#ffa6d2",
+            rim: "#ffe0f0",
+            tts: "ah",
+            rate: 1.02,
+            pitch: 1.16,
+            vol: 0.96,
+            strokes: [
+              // Stroke 1: single-story round belly (counter-clockwise from top-right)
+              {
+                pts: resamplePath(arcPts(-0.06, 0.12, 0.44, 0.50, -0.18 * Math.PI, -2.18 * Math.PI, 44)),
+              },
+              // Stroke 2: top-to-bottom right vertical stem
+              {
+                pts: linePts(0.40, -0.38, 0.40, 0.64),
+              },
+            ],
+          },
+          t: {
+            char: "t",
+            cueWord: "tap",
+            fill: "#38d9ff",
+            glow: "#a3efff",
+            rim: "#e3faff",
+            tts: "tuh",
+            rate: 1.48,
+            pitch: 1.12,
+            vol: 0.52,
+            strokes: [
+              // Stroke 1: top-to-bottom stem with gentle bottom curve
+              {
+                pts: resamplePath([
+                  { x: -0.04, y: -0.82 },
+                  { x: -0.04, y: 0.42 },
+                  ...arcPts(0.16, 0.42, 0.20, 0.22, Math.PI, 0.34 * Math.PI, 16),
+                ]),
+              },
+              // Stroke 2: left-to-right crossbar
+              {
+                pts: linePts(-0.42, -0.26, 0.38, -0.26),
+              },
+            ],
+          },
+          p: {
+            char: "p",
+            cueWord: "pan",
+            fill: "#ffe14d",
+            glow: "#fff2a6",
+            rim: "#fffbe0",
+            tts: "puh",
+            rate: 1.48,
+            pitch: 1.08,
+            vol: 0.52,
+            strokes: [
+              // Stroke 1: down-stem with descender
+              {
+                pts: linePts(-0.38, -0.50, -0.38, 0.88),
+              },
+              // Stroke 2: clockwise round loop
+              {
+                pts: resamplePath(arcPts(0.02, -0.02, 0.43, 0.46, -0.74 * Math.PI, 0.74 * Math.PI, 36)),
+              },
+            ],
+          },
+          i: {
+            char: "i",
+            cueWord: "igloo",
+            fill: "#b57bff",
+            glow: "#ddc2ff",
+            rim: "#f5ebff",
+            tts: "ih",
+            rate: 1.0,
+            pitch: 1.18,
+            vol: 0.96,
+            strokes: [
+              // Stroke 1: top-to-bottom short stem
+              {
+                pts: linePts(0, -0.22, 0, 0.68),
+              },
+              // Stroke 2: tap the glowing dot!
+              {
+                isDot: true,
+                pts: [{ x: 0, y: -0.64 }],
+              },
+            ],
+          },
+          n: {
+            char: "n",
+            cueWord: "net",
+            fill: "#ff9f43",
+            glow: "#ffd19e",
+            rim: "#fff2e3",
+            tts: "nuh",
+            rate: 1.24,
+            pitch: 1.08,
+            vol: 0.54,
+            strokes: [
+              // Stroke 1: top-to-bottom left stem
+              {
+                pts: linePts(-0.40, -0.44, -0.40, 0.66),
+              },
+              // Stroke 2: up-and-over arch down right leg
+              {
+                pts: resamplePath([
+                  { x: -0.40, y: -0.06 },
+                  ...arcPts(0, -0.06, 0.40, 0.38, Math.PI, 2 * Math.PI, 28),
+                  { x: 0.40, y: 0.66 },
+                ]),
+              },
+            ],
+          },
+        };
+
+        // Compute total checkpoints per letter
+        Object.values(LETTERS).forEach((l) => {
+          l.totalCheckpoints = l.strokes.reduce((acc, s) => acc + Math.max(1, s.pts.length - 1), 0);
+        });
+
+        function drawMiniVectorLetter(ch, cx, cy, scale, color, lineWidth) {
+          const def = LETTERS[ch];
+          if (!def) return;
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.strokeStyle = color;
+          ctx.fillStyle = color;
+          ctx.lineWidth = lineWidth;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          for (const s of def.strokes) {
+            if (s.isDot) {
+              ctx.beginPath();
+              ctx.arc(s.pts[0].x * scale, s.pts[0].y * scale, lineWidth * 0.64, 0, Math.PI * 2);
+              ctx.fill();
+            } else {
+              ctx.beginPath();
+              ctx.moveTo(s.pts[0].x * scale, s.pts[0].y * scale);
+              for (let i = 1; i < s.pts.length; i++) {
+                ctx.lineTo(s.pts[i].x * scale, s.pts[i].y * scale);
+              }
+              ctx.stroke();
+            }
+          }
+          ctx.restore();
+        }
+
+        // -------------------------------------------------------------------
+        // Mini Pixel-Art Icons for Letter Completion
+        // -------------------------------------------------------------------
+        const CUE_SPRITES = {
+          s: {
+            palette: { G: "#3fe070", D: "#1d8f44", Y: "#ffe14d", R: "#ff4d6d", W: "#ffffff", K: "#120b2e" },
+            rows: [
+              "....GGGG....",
+              "...GWGKGG...",
+              "..GGGGGGGG..",
+              ".R.GGGGDD...",
+              "...GGDD.....",
+              "....GGGGGG..",
+              "......GGDDG.",
+              ".....GGDDGG.",
+              "..GGGGDDGG..",
+              ".GGYGGGGG...",
+              "..GGGGGG....",
+              "............",
+            ],
+          },
+          a: {
+            palette: { R: "#ff3b6b", L: "#ff85a3", D: "#b81d48", G: "#52f277", B: "#9c6236" },
+            rows: [
+              "......BB....",
+              ".....BGGG...",
+              ".....BGG....",
+              "..RRR..RRR..",
+              ".RLLRRRRRRR.",
+              ".RLRRRRRRDR.",
+              ".RRRRRRRRDR.",
+              ".RRRRRRRRDR.",
+              ".RRRRRRRDRR.",
+              "..RRRRRRDR..",
+              "...RRDRRR...",
+              "....R..R....",
+            ],
+          },
+          t: {
+            palette: { M: "#c8e0f4", S: "#7ba7cc", H: "#ffffff", C: "#38d9ff", B: "#1e90ff" },
+            rows: [
+              "...HHHHHH...",
+              ".....MM.....",
+              "....MMMM....",
+              "MMMMMMMMS...",
+              "MHHHHMMMMS..",
+              "MMMMMMMMMS..",
+              ".......MMS..",
+              ".......CC...",
+              "......CCCC..",
+              "......CBBC..",
+              ".......CC...",
+              "............",
+            ],
+          },
+          p: {
+            palette: { D: "#3b4259", M: "#64708f", L: "#a6b4d4", W: "#ffffff", Y: "#ffe14d", O: "#ff9f43" },
+            rows: [
+              "............",
+              ".....DDDD...",
+              "...DDMMMMDD.",
+              "..DMMWWWWMMD",
+              "..DMWWYYWWMD",
+              ".DMMWYYYYWMD",
+              "DDMDMWYYOWMD",
+              "DLD.DMWWWWMD",
+              "DD...DDMMDD.",
+              ".......DD...",
+              "............",
+              "............",
+            ],
+          },
+          i: {
+            palette: { W: "#eef9ff", B: "#8fd8ff", C: "#4bb8f0", D: "#1d2754" },
+            rows: [
+              "............",
+              "....WWWW....",
+              "..WWBWWBWW..",
+              ".WWBBBBBBWW.",
+              ".WBBWWWWBBW.",
+              "WBBBBBBBBBBW",
+              "WBWWDDDDWWBW",
+              "WBBDDDDDDBBW",
+              "WBWDDDDDDWBW",
+              "CCCCCCCCCCCC",
+              "BBBBBBBBBBBB",
+              "............",
+            ],
+          },
+          n: {
+            palette: { B: "#c88a4b", D: "#8a5627", C: "#38d9ff", W: "#d8f8ff", O: "#ff9f43" },
+            rows: [
+              "....OOOO....",
+              "..OOCCCCOO..",
+              ".OCWCWCWCWO.",
+              ".OCCWCWCWCO.",
+              ".OCWCWCWCWO.",
+              "..OCCCCCCOO.",
+              "...OOCCOO...",
+              ".....BB.....",
+              "....BBD.....",
+              "...BBD......",
+              "..BBD.......",
+              ".BD.........",
+            ],
+          },
+        };
+
+        function drawPixelSprite(key, cx, cy, size) {
+          const sprite = CUE_SPRITES[key];
+          if (!sprite) return;
+          const n = sprite.rows.length;
+          const cell = size / n;
+          const x0 = cx - size / 2;
+          const y0 = cy - size / 2;
+          for (let r = 0; r < n; r++) {
+            const row = sprite.rows[r];
+            for (let c = 0; c < row.length; c++) {
+              const ch = row[c];
+              if (ch === ".") continue;
+              const col = sprite.palette[ch];
+              if (!col) continue;
+              ctx.fillStyle = col;
+              ctx.fillRect(Math.floor(x0 + c * cell), Math.floor(y0 + r * cell), Math.ceil(cell), Math.ceil(cell));
+            }
+          }
+        }
+
+        // -------------------------------------------------------------------
+        // Persistence
+        // -------------------------------------------------------------------
+        function loadStage() {
+          try {
+            return parseInt(localStorage.getItem(STORAGE_STAGE), 10) === 2 ? 2 : 1;
+          } catch (_) {
+            return 1;
+          }
+        }
+
+        function saveStage(stageId) {
+          try {
+            localStorage.setItem(STORAGE_STAGE, String(stageId));
+          } catch (_) {}
+        }
+
+        function loadTraced() {
+          try {
+            const n = parseInt(localStorage.getItem(STORAGE_TRACED), 10);
+            return Number.isFinite(n) && n > 0 ? n : 0;
+          } catch (_) {
+            return 0;
+          }
+        }
+
+        function saveTraced(val) {
+          try {
+            localStorage.setItem(STORAGE_TRACED, String(val));
+          } catch (_) {}
+        }
+
+        // -------------------------------------------------------------------
+        // Audio & Phonics Engine
+        // -------------------------------------------------------------------
+        let audioCtx = null;
+        let hasUserGesture = false;
+        let muted = false;
+        let preferredVoice = null;
+        let noiseBuffer = null;
+        let speakerPulse = 0;
+        let lastSparkleTime = 0;
+
+        const NOTES = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99, 880.0];
+
+        function ensureAudio() {
+          hasUserGesture = true;
+          if (!audioCtx) {
+            const AudioCtor = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtor) {
+              try {
+                audioCtx = new AudioCtor();
+              } catch (_) {
+                audioCtx = null;
+              }
+            }
+          }
+          if (audioCtx && audioCtx.state === "suspended") {
+            audioCtx.resume().catch(() => {});
+          }
+        }
+
+        function getNoiseBuffer() {
+          if (!audioCtx) return null;
+          if (noiseBuffer) return noiseBuffer;
+          const len = Math.floor(audioCtx.sampleRate * 0.7);
+          const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+          const data = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+          noiseBuffer = buf;
+          return buf;
+        }
+
+        function pickVoice() {
+          if (!window.speechSynthesis || typeof window.speechSynthesis.getVoices !== "function") return null;
+          const voices = window.speechSynthesis.getVoices();
+          if (!voices || !voices.length) return null;
+          const en = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith("en"));
+          return (
+            en.find((v) => /samantha|google us english|aria|jenny|karen|moira|tessa/i.test(v.name)) ||
+            en[0] ||
+            voices[0]
+          );
+        }
+
+        if (window.speechSynthesis && typeof window.speechSynthesis.addEventListener === "function") {
+          window.speechSynthesis.addEventListener("voiceschanged", () => {
+            preferredVoice = pickVoice();
+          });
+        }
+
+        function cancelSpeech() {
+          if (!window.speechSynthesis) return;
+          try {
+            window.speechSynthesis.cancel();
+          } catch (_) {}
+        }
+
+        function playTone(f0, f1, dur, type, vol, delay) {
+          if (muted || !hasUserGesture || !audioCtx) return;
+          const t0 = audioCtx.currentTime + (delay || 0);
+          const osc = audioCtx.createOscillator();
+          const g = audioCtx.createGain();
+          osc.type = type || "sine";
+          osc.frequency.setValueAtTime(f0, t0);
+          if (f1 && f1 !== f0) osc.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
+          g.gain.setValueAtTime(0.0001, t0);
+          g.gain.linearRampToValueAtTime(vol || 0.14, t0 + Math.min(0.018, dur * 0.25));
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+          osc.connect(g);
+          g.connect(audioCtx.destination);
+          osc.start(t0);
+          osc.stop(t0 + dur + 0.02);
+        }
+
+        function playTraceSparkle(frac) {
+          if (muted || !hasUserGesture || !audioCtx) return;
+          const nowMs = performance.now();
+          if (nowMs - lastSparkleTime < 68) return;
+          lastSparkleTime = nowMs;
+          const idx = Math.min(NOTES.length - 1, Math.floor(frac * NOTES.length));
+          const freq = NOTES[idx];
+          playTone(freq, freq * 1.15, 0.11, "sine", 0.15, 0);
+          playTone(freq * 2, freq * 2.05, 0.09, "triangle", 0.06, 0.01);
+        }
+
+        function playStrokeCompleteChime() {
+          playTone(440, 440, 0.11, "triangle", 0.15, 0);
+          playTone(587.33, 587.33, 0.14, "triangle", 0.15, 0.06);
+        }
+
+        function playLetterCompleteChime() {
+          [392.0, 523.25, 659.25, 783.99].forEach((f, i) => {
+            playTone(f, f, i === 3 ? 0.28 : 0.12, "triangle", 0.14, i * 0.075);
+          });
+        }
+
+        function playPhonemeSynth(ch) {
+          if (muted || !hasUserGesture || !audioCtx) return;
+          const ac = audioCtx;
+          const now = ac.currentTime;
+
+          if (ch === "s") {
+            const buf = getNoiseBuffer();
+            if (!buf) return;
+            const src = ac.createBufferSource();
+            src.buffer = buf;
+            const hp = ac.createBiquadFilter();
+            hp.type = "highpass";
+            hp.frequency.setValueAtTime(4200, now);
+            const bp = ac.createBiquadFilter();
+            bp.type = "bandpass";
+            bp.frequency.setValueAtTime(6000, now);
+            bp.Q.setValueAtTime(1.4, now);
+            const g = ac.createGain();
+            g.gain.setValueAtTime(0.0001, now);
+            g.gain.linearRampToValueAtTime(0.14, now + 0.05);
+            g.gain.setValueAtTime(0.13, now + 0.34);
+            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
+            src.connect(hp);
+            hp.connect(bp);
+            bp.connect(g);
+            g.connect(ac.destination);
+            src.start(now);
+            src.stop(now + 0.5);
+          } else if (ch === "t") {
+            const buf = getNoiseBuffer();
+            if (!buf) return;
+            const src = ac.createBufferSource();
+            src.buffer = buf;
+            const bp = ac.createBiquadFilter();
+            bp.type = "bandpass";
+            bp.frequency.setValueAtTime(4600, now);
+            bp.Q.setValueAtTime(1.8, now);
+            const g = ac.createGain();
+            g.gain.setValueAtTime(0.0001, now);
+            g.gain.linearRampToValueAtTime(0.24, now + 0.006);
+            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
+            src.connect(bp);
+            bp.connect(g);
+            g.connect(ac.destination);
+            src.start(now);
+            src.stop(now + 0.065);
+          } else if (ch === "p") {
+            const buf = getNoiseBuffer();
+            if (!buf) return;
+            const src = ac.createBufferSource();
+            src.buffer = buf;
+            const bp = ac.createBiquadFilter();
+            bp.type = "bandpass";
+            bp.frequency.setValueAtTime(950, now);
+            bp.frequency.exponentialRampToValueAtTime(420, now + 0.06);
+            bp.Q.setValueAtTime(1.2, now);
+            const g = ac.createGain();
+            g.gain.setValueAtTime(0.0001, now);
+            g.gain.linearRampToValueAtTime(0.26, now + 0.008);
+            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.068);
+            src.connect(bp);
+            bp.connect(g);
+            g.connect(ac.destination);
+            src.start(now);
+            src.stop(now + 0.08);
+          } else if (ch === "n") {
+            const osc = ac.createOscillator();
+            const sub = ac.createOscillator();
+            osc.type = "triangle";
+            sub.type = "sine";
+            osc.frequency.setValueAtTime(220, now);
+            sub.frequency.setValueAtTime(220, now);
+            const lp = ac.createBiquadFilter();
+            lp.type = "lowpass";
+            lp.frequency.setValueAtTime(520, now);
+            const g = ac.createGain();
+            g.gain.setValueAtTime(0.0001, now);
+            g.gain.linearRampToValueAtTime(0.14, now + 0.04);
+            g.gain.setValueAtTime(0.12, now + 0.28);
+            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
+            osc.connect(lp);
+            sub.connect(lp);
+            lp.connect(g);
+            g.connect(ac.destination);
+            osc.start(now);
+            sub.start(now);
+            osc.stop(now + 0.44);
+            sub.stop(now + 0.44);
+          } else if (!window.speechSynthesis) {
+            playTone(ch === "a" ? 440 : 587.33, ch === "a" ? 460 : 620, 0.18, "triangle", 0.14, 0);
+          }
+        }
+
+        function speakPhonic(ch) {
+          if (muted || !hasUserGesture) return;
+          const def = LETTERS[ch];
+          if (!def) return;
+          speakerPulse = 1.0;
+          playPhonemeSynth(ch);
+
+          if (!("speechSynthesis" in window) || typeof window.SpeechSynthesisUtterance !== "function") return;
+          try {
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(def.tts);
+            if (!preferredVoice) preferredVoice = pickVoice();
+            if (preferredVoice) u.voice = preferredVoice;
+            u.lang = (preferredVoice && preferredVoice.lang) || "en-US";
+            u.rate = def.rate;
+            u.pitch = def.pitch;
+            u.volume = def.vol;
+            window.speechSynthesis.speak(u);
+          } catch (_) {}
+        }
+
+        function announce(text) {
+          if (!liveStatus) return;
+          liveStatus.textContent = "";
+          requestAnimationFrame(() => {
+            liveStatus.textContent = text;
+          });
+        }
+
+        // -------------------------------------------------------------------
+        // Game State
+        // -------------------------------------------------------------------
+        let W = 320;
+        let H = 320;
+        let dpr = 1;
+
+        // "title" | "tracing" | "celebrate" | "paused"
+        let state = "title";
+        let stateBeforePause = "tracing";
+        let activeStage = loadStage();
+        let totalTraced = loadTraced();
+        let letterIdx = 0;
+        let strokeIdx = 0;
+        let progressIdx = 0;
+
+        let elapsed = 0;
+        let celebrateTimer = 0;
+        let guidePhase = 0;
+        let strokeLiftGuard = 0;
+
+        // Attract mode demo
+        let demoIdx = 0;
+        let demoProgress = 0;
+
+        // Single active pointer tracking
+        let activePointerId = null;
+
+        // Visual FX
+        let starsBg = [];
+        let particles = [];
+        let rings = [];
+
+        // On-canvas interactive rects
+        let stage1Rect = { x: 0, y: 0, w: 0, h: 0 };
+        let stage2Rect = { x: 0, y: 0, w: 0, h: 0 };
+        let speakerBtn = { cx: 0, cy: 0, r: 34 };
+        let prevBtn = { cx: 0, cy: 0, r: 28 };
+        let nextBtn = { cx: 0, cy: 0, r: 28 };
+
+        function getCurrentPool() {
+          return STAGES[activeStage].letters;
+        }
+
+        function getCurrentLetter() {
+          const pool = getCurrentPool();
+          const ch = pool[((letterIdx % pool.length) + pool.length) % pool.length];
+          return LETTERS[ch];
+        }
+
+        function initStars() {
+          starsBg = [];
+          for (let i = 0; i < 42; i++) {
+            starsBg.push({
+              x: Math.random(),
+              y: Math.random(),
+              r: 1 + Math.random() * 2.2,
+              phase: Math.random() * Math.PI * 2,
+              speed: 1.1 + Math.random() * 2.0,
+            });
+          }
+        }
+
+        function resize() {
+          const rect = canvas.getBoundingClientRect();
+          W = Math.max(1, rect.width);
+          H = Math.max(1, rect.height);
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.width = Math.floor(W * dpr);
+          canvas.height = Math.floor(H * dpr);
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          updateControlRects();
+        }
+
+        function updateControlRects() {
+          const minDim = Math.min(W, H);
+          const isPortrait = H > W * 1.05;
+          const btnR = Math.max(28, Math.min(40, minDim * 0.075));
+          const spkR = Math.max(30, Math.min(42, minDim * 0.082));
+
+          if (isPortrait) {
+            const bottomY = H - Math.max(54, btnR + 24);
+            prevBtn = { cx: Math.max(btnR + 18, W * 0.18), cy: bottomY, r: btnR };
+            speakerBtn = { cx: W / 2, cy: bottomY, r: spkR };
+            nextBtn = { cx: Math.min(W - btnR - 18, W * 0.82), cy: bottomY, r: btnR };
+          } else {
+            const sidePad = Math.max(btnR + 22, W * 0.1);
+            prevBtn = { cx: sidePad, cy: H * 0.54, r: btnR };
+            nextBtn = { cx: W - sidePad, cy: H * 0.54, r: btnR };
+            speakerBtn = { cx: W / 2, cy: H - Math.max(48, spkR + 14), r: spkR };
+          }
+        }
+
+        function getLetterMetrics() {
+          const minDim = Math.min(W, H);
+          const compact = W < 300;
+          const topPad = compact ? 16 : Math.max(66, H * 0.12);
+          const bottomPad = compact ? 16 : Math.max(114, H * 0.21);
+          const sidePad = compact ? 16 : W > H * 1.05 ? Math.max(120, W * 0.22) : Math.max(36, W * 0.08);
+          const availW = Math.max(80, W - sidePad * 2);
+          const availH = Math.max(80, H - topPad - bottomPad);
+          const scale = Math.max(48, Math.min(200, Math.min(availW * 0.48, availH * 0.45)));
+          const cx = W / 2;
+          const cy = topPad + availH * 0.48;
+          return { cx, cy, scale };
+        }
+
+        function toScreen(pt, metrics) {
+          return {
+            x: metrics.cx + pt.x * metrics.scale,
+            y: metrics.cy + pt.y * metrics.scale,
+          };
+        }
+
+        function syncHud() {
+          const inPlay = state !== "title";
+          btnStage.hidden = !inPlay;
+          btnPause.hidden = !inPlay;
+
+          btnStage.firstElementChild.textContent = activeStage === 1 ? "S1" : "S2";
+          btnStage.setAttribute(
+            "aria-label",
+            activeStage === 1 ? "Stage 1 active (s a t p). Tap for Stage 2" : "Stage 2 active (s a t p i n). Tap for Stage 1"
+          );
+
+          btnPause.setAttribute("aria-pressed", String(state === "paused"));
+          btnPause.setAttribute("aria-label", state === "paused" ? "Resume game" : "Pause game");
+          btnPause.firstElementChild.textContent = state === "paused" ? "▶" : "II";
+
+          btnMute.setAttribute("aria-pressed", String(muted));
+          btnMute.setAttribute("aria-label", muted ? "Unmute sound" : "Mute sound");
+          btnMute.firstElementChild.textContent = muted ? "✕" : "♪";
+        }
+
+        // -------------------------------------------------------------------
+        // Game Flow
+        // -------------------------------------------------------------------
+        function loadLetter(idx, speakPrompt) {
+          cancelSpeech();
+          const pool = getCurrentPool();
+          letterIdx = ((idx % pool.length) + pool.length) % pool.length;
+          strokeIdx = 0;
+          progressIdx = 0;
+          celebrateTimer = 0;
+          guidePhase = 0;
+          strokeLiftGuard = 0;
+          activePointerId = null;
+          state = "tracing";
+          const letter = getCurrentLetter();
+          announce(`Trace lowercase ${letter.char}`);
+          syncHud();
+          if (speakPrompt) {
+            setTimeout(() => {
+              if (state === "tracing") speakPhonic(letter.char);
+            }, 180);
+          }
+        }
+
+        function startGame() {
+          ensureAudio();
+          [261.63, 329.63, 392.0, 523.25].forEach((f, i) => {
+            playTone(f, f, 0.12, "triangle", 0.13, i * 0.055);
+          });
+          loadLetter(0, true);
+        }
+
+        function setStage(stageId) {
+          activeStage = stageId === 2 ? 2 : 1;
+          saveStage(activeStage);
+          letterIdx = 0;
+          if (state !== "title") {
+            loadLetter(0, true);
+          }
+          syncHud();
+        }
+
+        function spawnSparkles(x, y, color, count) {
+          const n = reducedMotion ? Math.min(3, count) : count;
+          for (let i = 0; i < n; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const spd = 30 + Math.random() * 110;
+            particles.push({
+              x,
+              y,
+              vx: Math.cos(a) * spd,
+              vy: Math.sin(a) * spd,
+              size: 4 + Math.random() * 5,
+              color: i % 3 === 0 ? "#ffffff" : i % 2 === 0 ? color : "#ffe14d",
+              life: 0.4 + Math.random() * 0.35,
+              maxLife: 0.75,
+              star: i % 2 === 0,
+            });
+          }
+        }
+
+        function completeLetter() {
+          const letter = getCurrentLetter();
+          state = "celebrate";
+          celebrateTimer = 2.3;
+          activePointerId = null;
+          totalTraced += 1;
+          saveTraced(totalTraced);
+
+          const metrics = getLetterMetrics();
+          rings.push({
+            x: metrics.cx,
+            y: metrics.cy,
+            r: metrics.scale * 0.45,
+            maxR: metrics.scale * 1.95,
+            alpha: 1,
+            color: letter.rim,
+          });
+
+          const burst = reducedMotion ? 14 : 36;
+          const colors = ["#ffe14d", "#ff5ca8", "#38d9ff", "#66ff66", "#b57bff", "#ffffff", letter.fill];
+          for (let i = 0; i < burst; i++) {
+            const a = (Math.PI * 2 * i) / burst + (Math.random() - 0.5) * 0.25;
+            const spd = (reducedMotion ? 55 : 105) + Math.random() * (reducedMotion ? 75 : 210);
+            particles.push({
+              x: metrics.cx + (Math.random() - 0.5) * metrics.scale * 0.35,
+              y: metrics.cy + (Math.random() - 0.5) * metrics.scale * 0.35,
+              vx: Math.cos(a) * spd,
+              vy: Math.sin(a) * spd - 35,
+              size: 5 + Math.random() * 7,
+              color: colors[i % colors.length],
+              life: 0.85 + Math.random() * 0.65,
+              maxLife: 1.5,
+              star: i % 3 !== 0,
+            });
+          }
+
+          // Immediately play the letter's phonic sound on completion!
+          speakPhonic(letter.char);
+          playLetterCompleteChime();
+          announce(`Great job tracing ${letter.char}, like ${letter.cueWord}!`);
+        }
+
+        function getProgressFraction(letter) {
+          let done = progressIdx;
+          for (let s = 0; s < strokeIdx; s++) {
+            done += Math.max(1, letter.strokes[s].pts.length - 1);
+          }
+          return Math.min(1, done / Math.max(1, letter.totalCheckpoints));
+        }
+
+        function tryTraceAt(px, py) {
+          if (state !== "tracing" || strokeLiftGuard > 0) return;
+          const letter = getCurrentLetter();
+          const stroke = letter.strokes[strokeIdx];
+          if (!stroke) return;
+          const metrics = getLetterMetrics();
+          const snapR = Math.max(46, metrics.scale * 0.46);
+
+          // Special tap-the-dot stroke (for 'i')
+          if (stroke.isDot) {
+            const sp = toScreen(stroke.pts[0], metrics);
+            if (Math.hypot(px - sp.x, py - sp.y) <= snapR * 1.18) {
+              spawnSparkles(sp.x, sp.y, letter.fill, 12);
+              if (strokeIdx < letter.strokes.length - 1) {
+                strokeIdx += 1;
+                progressIdx = 0;
+                strokeLiftGuard = 0.16;
+                playStrokeCompleteChime();
+              } else {
+                completeLetter();
+              }
+            }
+            return;
+          }
+
+          const pts = stroke.pts;
+          const lastIdx = pts.length - 1;
+          // Look ahead generously up to 6 checkpoints so quick/imprecise toddler fingers glide smoothly
+          const maxLook = Math.min(lastIdx, progressIdx + 6);
+          let bestIdx = -1;
+          let bestDist = Infinity;
+
+          for (let i = progressIdx; i <= maxLook; i++) {
+            const sp = toScreen(pts[i], metrics);
+            const d = Math.hypot(px - sp.x, py - sp.y);
+            if (d <= snapR && d <= bestDist) {
+              bestDist = d;
+              bestIdx = i;
+            }
+          }
+
+          if (bestIdx > progressIdx || (bestIdx === progressIdx && progressIdx === 0 && bestDist <= snapR)) {
+            const targetIdx = Math.min(lastIdx, Math.max(bestIdx, progressIdx + 1));
+            if (targetIdx > progressIdx) {
+              progressIdx = targetIdx;
+              const sp = toScreen(pts[progressIdx], metrics);
+              spawnSparkles(sp.x, sp.y, letter.fill, 5);
+              playTraceSparkle(getProgressFraction(letter));
+            }
+
+            // Generous auto-finish near end of stroke
+            if (progressIdx >= lastIdx - 1) {
+              progressIdx = lastIdx;
+              const endPt = toScreen(pts[lastIdx], metrics);
+              spawnSparkles(endPt.x, endPt.y, letter.fill, 10);
+              if (strokeIdx < letter.strokes.length - 1) {
+                strokeIdx += 1;
+                progressIdx = 0;
+                strokeLiftGuard = 0.22;
+                guidePhase = 0;
+                playStrokeCompleteChime();
+              } else {
+                completeLetter();
+              }
+            }
+          }
+        }
+
+        // -------------------------------------------------------------------
+        // Pointer Events (Single-Pointer Touch Ergonomics)
+        // -------------------------------------------------------------------
+        function inRect(x, y, r) {
+          return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+        }
+
+        function inCircle(x, y, c, mult) {
+          const rr = c.r * (mult || 1.2);
+          const dx = x - c.cx;
+          const dy = y - c.cy;
+          return dx * dx + dy * dy <= rr * rr;
+        }
+
+        function handlePointerDown(e) {
+          if (e.pointerType === "mouse" && e.button !== 0) return;
+          e.preventDefault();
+          ensureAudio();
+
+          if (activePointerId !== null && activePointerId !== e.pointerId) return;
+          activePointerId = e.pointerId;
+          try {
+            canvas.setPointerCapture(e.pointerId);
+          } catch (_) {}
+
+          const rect = canvas.getBoundingClientRect();
+          const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
+
+          if (state === "title") {
+            if (inRect(px, py, stage1Rect)) {
+              playTone(440, 520, 0.09, "triangle", 0.14, 0);
+              setStage(1);
+              return;
+            }
+            if (inRect(px, py, stage2Rect)) {
+              playTone(523.25, 659.25, 0.09, "triangle", 0.14, 0);
+              setStage(2);
+              return;
+            }
+            startGame();
+            return;
+          }
+
+          if (state === "paused") {
+            state = stateBeforePause === "paused" ? "tracing" : stateBeforePause;
+            syncHud();
+            return;
+          }
+
+          // Controls: Speaker, Previous, Next
+          if (inCircle(px, py, speakerBtn, 1.25)) {
+            speakPhonic(getCurrentLetter().char);
+            return;
+          }
+          if (inCircle(px, py, prevBtn, 1.25)) {
+            playTone(392, 330, 0.08, "triangle", 0.12, 0);
+            loadLetter(letterIdx - 1, true);
+            return;
+          }
+          if (inCircle(px, py, nextBtn, 1.25)) {
+            playTone(440, 523.25, 0.08, "triangle", 0.12, 0);
+            loadLetter(letterIdx + 1, true);
+            return;
+          }
+
+          if (state === "celebrate") {
+            // Tapping the completed letter replays its phonic sound or advances when ready
+            if (celebrateTimer < 1.3) {
+              loadLetter(letterIdx + 1, true);
+            } else {
+              speakPhonic(getCurrentLetter().char);
+            }
+            return;
+          }
+
+          if (state === "tracing") {
+            strokeLiftGuard = 0;
+            tryTraceAt(px, py);
+          }
+        }
+
+        function handlePointerMove(e) {
+          if (activePointerId !== e.pointerId) return;
+          if (state !== "tracing") return;
+          e.preventDefault();
+          const rect = canvas.getBoundingClientRect();
+          const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
+          tryTraceAt(px, py);
+        }
+
+        function releasePointer(e) {
+          if (activePointerId === e.pointerId) {
+            activePointerId = null;
+          }
+        }
+
+        function pauseIfActive() {
+          if (state === "tracing" || state === "celebrate") {
+            stateBeforePause = state;
+            state = "paused";
+            activePointerId = null;
+            cancelSpeech();
+            syncHud();
+          }
+        }
+
+        btnStage.addEventListener("click", (e) => {
+          e.stopPropagation();
+          ensureAudio();
+          playTone(440, 587.33, 0.1, "triangle", 0.14, 0);
+          setStage(activeStage === 1 ? 2 : 1);
+        });
+
+        btnPause.addEventListener("click", (e) => {
+          e.stopPropagation();
+          ensureAudio();
+          if (state === "paused") {
+            state = stateBeforePause === "paused" ? "tracing" : stateBeforePause;
+            syncHud();
+          } else {
+            pauseIfActive();
+          }
+        });
+
+        btnMute.addEventListener("click", (e) => {
+          e.stopPropagation();
+          ensureAudio();
+          muted = !muted;
+          if (muted) cancelSpeech();
+          syncHud();
+        });
+
+        canvas.addEventListener("pointerdown", handlePointerDown);
+        canvas.addEventListener("pointermove", handlePointerMove);
+        canvas.addEventListener("pointerup", releasePointer);
+        canvas.addEventListener("pointercancel", releasePointer);
+        canvas.addEventListener("lostpointercapture", releasePointer);
+
+        window.addEventListener("blur", pauseIfActive);
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) pauseIfActive();
+        });
+        window.addEventListener("resize", resize);
+
+        // -------------------------------------------------------------------
+        // Update Loop
+        // -------------------------------------------------------------------
+        function update(dt) {
+          elapsed += dt;
+          if (speakerPulse > 0) speakerPulse = Math.max(0, speakerPulse - dt * 1.9);
+          if (strokeLiftGuard > 0) strokeLiftGuard = Math.max(0, strokeLiftGuard - dt);
+
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vy += 120 * dt;
+            p.life -= dt;
+            if (p.life <= 0) particles.splice(i, 1);
+          }
+          for (let i = rings.length - 1; i >= 0; i--) {
+            const rg = rings[i];
+            rg.r += (rg.maxR - rg.r) * Math.min(1, dt * 9);
+            rg.alpha -= dt * 1.9;
+            if (rg.alpha <= 0) rings.splice(i, 1);
+          }
+
+          if (state === "title") {
+            demoProgress += dt * (reducedMotion ? 0.12 : 0.34);
+            if (demoProgress >= 1.35) {
+              demoProgress = 0;
+              demoIdx = (demoIdx + 1) % STAGES[activeStage].letters.length;
+            }
+            return;
+          }
+
+          if (state === "paused") return;
+
+          if (state === "tracing") {
+            guidePhase = (guidePhase + dt * (reducedMotion ? 0.25 : 0.65)) % 1;
+          } else if (state === "celebrate") {
+            celebrateTimer -= dt;
+            if (celebrateTimer <= 0) {
+              loadLetter(letterIdx + 1, true);
+            }
+          }
+        }
+
+        // -------------------------------------------------------------------
+        // Drawing Helpers
+        // -------------------------------------------------------------------
+        function drawRoundedBox(x, y, w, h, r, fill, stroke, lw) {
+          const rr = Math.min(r, w / 2, h / 2);
+          ctx.beginPath();
+          ctx.moveTo(x + rr, y);
+          ctx.lineTo(x + w - rr, y);
+          ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+          ctx.lineTo(x + w, y + h - rr);
+          ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+          ctx.lineTo(x + rr, y + h);
+          ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+          ctx.lineTo(x, y + rr);
+          ctx.quadraticCurveTo(x, y, x + rr, y);
+          ctx.closePath();
+          if (fill) {
+            ctx.fillStyle = fill;
+            ctx.fill();
+          }
+          if (stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = lw || 2.5;
+            ctx.stroke();
+          }
+        }
+
+        function drawStar(x, y, size, color, strokeColor) {
+          ctx.beginPath();
+          for (let i = 0; i < 5; i++) {
+            const a1 = (i * 2 * Math.PI) / 5 - Math.PI / 2;
+            const a2 = a1 + Math.PI / 5;
+            const rx = x + Math.cos(a1) * size;
+            const ry = y + Math.sin(a1) * size;
+            const ix = x + Math.cos(a2) * (size * 0.45);
+            const iy = y + Math.sin(a2) * (size * 0.45);
+            if (i === 0) ctx.moveTo(rx, ry);
+            else ctx.lineTo(rx, ry);
+            ctx.lineTo(ix, iy);
+          }
+          ctx.closePath();
+          ctx.fillStyle = color;
+          ctx.fill();
+          if (strokeColor) {
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+        }
+
+        function drawBackground() {
+          const grad = ctx.createLinearGradient(0, 0, 0, H);
+          grad.addColorStop(0, "#120b2e");
+          grad.addColorStop(0.55, "#1d1b52");
+          grad.addColorStop(1, "#123466");
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, W, H);
+
+          for (const s of starsBg) {
+            const tw = reducedMotion ? 0.5 : 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(elapsed * s.speed + s.phase));
+            ctx.fillStyle = `rgba(255, 255, 255, ${tw.toFixed(2)})`;
+            ctx.fillRect(Math.floor(s.x * W), Math.floor(s.y * H), Math.ceil(s.r), Math.ceil(s.r));
+          }
+
+          ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
+          for (let y = 0; y < H; y += 4) ctx.fillRect(0, y, W, 1);
+        }
+
+        function drawStrokePolyline(pts, endIdx, metrics, color, width, glowColor) {
+          if (endIdx < 1 || pts.length < 2) return;
+          ctx.save();
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          if (glowColor) {
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = Math.max(12, width * 0.9);
+          }
+          ctx.strokeStyle = color;
+          ctx.lineWidth = width;
+          ctx.beginPath();
+          const p0 = toScreen(pts[0], metrics);
+          ctx.moveTo(p0.x, p0.y);
+          for (let i = 1; i <= endIdx; i++) {
+            const sp = toScreen(pts[i], metrics);
+            ctx.lineTo(sp.x, sp.y);
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        function drawTracingLetter(letter, metrics, activeSIdx, activePIdx, isCelebrating) {
+          const trackW = Math.max(20, Math.min(44, metrics.scale * 0.26));
+          const pulse = isCelebrating && !reducedMotion ? 1 + Math.sin(elapsed * 12) * 0.05 : 1;
+          const m = { cx: metrics.cx, cy: metrics.cy, scale: metrics.scale * pulse };
+
+          // 1. Subtle backing dark neon channel + glowing dotted guide for ALL strokes
+          for (let s = 0; s < letter.strokes.length; s++) {
+            const stroke = letter.strokes[s];
+            const isActive = !isCelebrating && s === activeSIdx;
+            if (stroke.isDot) {
+              const sp = toScreen(stroke.pts[0], m);
+              const dotR = trackW * 0.62;
+              ctx.save();
+              ctx.fillStyle = "rgba(18, 11, 46, 0.72)";
+              ctx.beginPath();
+              ctx.arc(sp.x, sp.y, dotR * 1.25, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = isActive ? "#ffe14d" : "rgba(255,255,255,0.35)";
+              ctx.lineWidth = 3;
+              ctx.setLineDash([6, 6]);
+              ctx.stroke();
+              ctx.restore();
+            } else {
+              // Channel outline
+              drawStrokePolyline(stroke.pts, stroke.pts.length - 1, m, "rgba(10, 8, 30, 0.65)", trackW * 1.28, null);
+              drawStrokePolyline(
+                stroke.pts,
+                stroke.pts.length - 1,
+                m,
+                isActive ? "rgba(255, 255, 255, 0.22)" : "rgba(255, 255, 255, 0.12)",
+                trackW * 0.84,
+                null
+              );
+
+              // Glowing dotted arcade track beads
+              const pts = stroke.pts;
+              for (let i = 0; i < pts.length; i += 2) {
+                const sp = toScreen(pts[i], m);
+                const done = isCelebrating || s < activeSIdx || (s === activeSIdx && i <= activePIdx);
+                if (done) continue;
+                ctx.fillStyle = isActive ? "rgba(255, 255, 255, 0.78)" : "rgba(255, 255, 255, 0.34)";
+                ctx.beginPath();
+                ctx.arc(sp.x, sp.y, Math.max(3.5, trackW * 0.16), 0, Math.PI * 2);
+                ctx.fill();
+              }
+            }
+          }
+
+          // 2. Bright glowing neon trail for completed strokes + active traced portion
+          for (let s = 0; s < letter.strokes.length; s++) {
+            const stroke = letter.strokes[s];
+            const fullyDone = isCelebrating || s < activeSIdx;
+            if (stroke.isDot) {
+              if (fullyDone) {
+                const sp = toScreen(stroke.pts[0], m);
+                ctx.save();
+                ctx.shadowColor = letter.fill;
+                ctx.shadowBlur = 22;
+                ctx.fillStyle = letter.fill;
+                ctx.beginPath();
+                ctx.arc(sp.x, sp.y, trackW * 0.66, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "#ffffff";
+                ctx.beginPath();
+                ctx.arc(sp.x, sp.y, trackW * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+              }
+            } else {
+              const endIdx = fullyDone ? stroke.pts.length - 1 : s === activeSIdx ? activePIdx : 0;
+              if (endIdx >= 1) {
+                drawStrokePolyline(stroke.pts, endIdx, m, letter.fill, trackW * 0.88, letter.fill);
+                drawStrokePolyline(stroke.pts, endIdx, m, letter.rim, trackW * 0.36, null);
+              }
+            }
+          }
+
+          // 3. Animated glowing star/sparkle guide showing where to start and drag direction
+          if (!isCelebrating && state === "tracing") {
+            const activeStroke = letter.strokes[activeSIdx];
+            if (activeStroke) {
+              if (activeStroke.isDot) {
+                const sp = toScreen(activeStroke.pts[0], m);
+                const pulseR = trackW * (0.78 + Math.sin(elapsed * 7) * 0.18);
+                ctx.save();
+                ctx.strokeStyle = "#ffe14d";
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.arc(sp.x, sp.y, pulseR, 0, Math.PI * 2);
+                ctx.stroke();
+                drawStar(sp.x, sp.y, Math.max(12, trackW * 0.45), "#ffe14d", "#ffffff");
+                ctx.restore();
+              } else {
+                const pts = activeStroke.pts;
+                const remStart = activePIdx;
+                const remSpan = Math.max(1, pts.length - 1 - remStart);
+
+                // Glowing animated guide star travelling ahead along the remaining stroke
+                const guidePos = remStart + guidePhase * remSpan;
+                const gi = Math.min(pts.length - 2, Math.floor(guidePos));
+                const gt = guidePos - gi;
+                const gPt = {
+                  x: pts[gi].x + (pts[gi + 1].x - pts[gi].x) * gt,
+                  y: pts[gi].y + (pts[gi + 1].y - pts[gi].y) * gt,
+                };
+                const gScreen = toScreen(gPt, m);
+                ctx.save();
+                ctx.globalAlpha = 0.72 * (1 - guidePhase * 0.35);
+                ctx.shadowColor = "#ffe14d";
+                ctx.shadowBlur = 14;
+                drawStar(gScreen.x, gScreen.y, Math.max(9, trackW * 0.32), "#ffe14d", "#ffffff");
+                ctx.restore();
+
+                // Current target start / active bead with pulsing halo
+                const curScreen = toScreen(pts[activePIdx], m);
+                const haloR = trackW * (0.68 + Math.sin(elapsed * 6) * 0.14);
+                ctx.save();
+                ctx.strokeStyle = "#ffe14d";
+                ctx.lineWidth = 3.5;
+                ctx.beginPath();
+                ctx.arc(curScreen.x, curScreen.y, haloR, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.shadowColor = "#ffe14d";
+                ctx.shadowBlur = 16;
+                drawStar(curScreen.x, curScreen.y, Math.max(12, trackW * 0.46), "#ffe14d", "#ffffff");
+                ctx.restore();
+              }
+            }
+          }
+        }
+
+        function drawCircleControl(btn, icon, borderColor, bgColor, pulseAmt) {
+          if (W < 300) return;
+          const p = 1 + (pulseAmt || 0);
+          const rr = btn.r * p;
+          ctx.save();
+          ctx.fillStyle = bgColor || "rgba(18, 11, 46, 0.86)";
+          ctx.beginPath();
+          ctx.arc(btn.cx, btn.cy, rr, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.lineWidth = 3.5;
+          ctx.strokeStyle = borderColor;
+          ctx.stroke();
+
+          ctx.fillStyle = "#ffffff";
+          ctx.font = `900 ${Math.floor(rr * 0.85)}px "Courier New", Courier, monospace`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(icon, btn.cx, btn.cy + 1);
+          ctx.restore();
+        }
+
+        function drawSpeakerControl() {
+          if (W < 300) return;
+          const { cx, cy, r } = speakerBtn;
+          const p = speakerPulse > 0 ? Math.sin(speakerPulse * Math.PI) * 0.12 : Math.sin(elapsed * 2.5) * 0.025;
+          const rr = r * (1 + p);
+
+          ctx.save();
+          if (speakerPulse > 0) {
+            ctx.globalAlpha = speakerPulse * 0.75;
+            ctx.strokeStyle = "#38d9ff";
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r * (1.05 + (1 - speakerPulse) * 0.8), 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+          }
+
+          const grad = ctx.createRadialGradient(cx - rr * 0.25, cy - rr * 0.25, 4, cx, cy, rr);
+          grad.addColorStop(0, "#5be8ff");
+          grad.addColorStop(1, "#1e6ef0");
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.lineWidth = 3.5;
+          ctx.strokeStyle = "#ffe14d";
+          ctx.stroke();
+
+          const s = rr * 0.42;
+          ctx.fillStyle = "#ffffff";
+          ctx.beginPath();
+          ctx.moveTo(cx - s * 0.95, cy - s * 0.38);
+          ctx.lineTo(cx - s * 0.35, cy - s * 0.38);
+          ctx.lineTo(cx + s * 0.22, cy - s * 0.86);
+          ctx.lineTo(cx + s * 0.22, cy + s * 0.86);
+          ctx.lineTo(cx - s * 0.35, cy + s * 0.38);
+          ctx.lineTo(cx - s * 0.95, cy + s * 0.38);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.strokeStyle = "#ffe14d";
+          ctx.lineWidth = Math.max(2.5, rr * 0.085);
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.arc(cx + s * 0.26, cy, s * 0.48, -0.35 * Math.PI, 0.35 * Math.PI);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(cx + s * 0.26, cy, s * 0.82, -0.38 * Math.PI, 0.38 * Math.PI);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        function drawStageProgressPips() {
+          if (W < 300) return;
+          const pool = getCurrentPool();
+          const pad = Math.max(12, Math.min(20, W * 0.03));
+          const pipW = Math.min(34, Math.max(24, (W * 0.56) / pool.length));
+          const pipH = 38;
+          const totalW = pool.length * pipW + (pool.length - 1) * 6;
+
+          ctx.save();
+          pool.forEach((ch, i) => {
+            const x = pad + i * (pipW + 6);
+            const y = pad;
+            const active = i === letterIdx;
+            const l = LETTERS[ch];
+            drawRoundedBox(
+              x,
+              y,
+              pipW,
+              pipH,
+              10,
+              active ? "rgba(56, 217, 255, 0.28)" : "rgba(18, 11, 46, 0.78)",
+              active ? l.fill : "rgba(255,255,255,0.22)",
+              active ? 3 : 1.5
+            );
+            drawMiniVectorLetter(
+              ch,
+              x + pipW / 2,
+              y + pipH * 0.52,
+              pipH * 0.28,
+              active ? "#ffffff" : l.glow,
+              Math.max(2.2, pipH * 0.075)
+            );
+          });
+
+          ctx.font = `900 12px "Courier New", Courier, monospace`;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "top";
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText(`★ ${totalTraced}  STAGE ${activeStage}`, pad + 2, pad + pipH + 5);
+          ctx.restore();
+        }
+
+        function drawCelebrateIcon(letter, metrics) {
+          if (state !== "celebrate") return;
+          const badgeSize = Math.max(66, Math.min(112, Math.min(W, H) * 0.2));
+          const isLandscape = W > H * 1.1;
+          const bx = isLandscape ? Math.min(W - badgeSize * 0.9, metrics.cx + metrics.scale * 1.05) : metrics.cx;
+          const by = isLandscape
+            ? metrics.cy
+            : Math.min(speakerBtn.cy - speakerBtn.r - badgeSize * 0.62, metrics.cy + metrics.scale * 0.98);
+          const pop = Math.min(1, (2.3 - celebrateTimer) * 5);
+
+          ctx.save();
+          ctx.translate(bx, by);
+          ctx.scale(pop, pop);
+          drawRoundedBox(
+            -badgeSize / 2,
+            -badgeSize / 2,
+            badgeSize,
+            badgeSize,
+            18,
+            "rgba(18, 11, 46, 0.92)",
+            letter.fill,
+            4
+          );
+          drawPixelSprite(letter.char, 0, -badgeSize * 0.08, badgeSize * 0.58);
+          ctx.font = `900 ${Math.max(12, Math.floor(badgeSize * 0.18))}px "Courier New", Courier, monospace`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText(letter.cueWord, 0, badgeSize * 0.34);
+          ctx.restore();
+        }
+
+        function drawEffects() {
+          for (const rg of rings) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, rg.alpha);
+            ctx.strokeStyle = rg.color;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(rg.x, rg.y, rg.r, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+          for (const p of particles) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+            if (p.star) drawStar(p.x, p.y, p.size, p.color);
+            else {
+              ctx.fillStyle = p.color;
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, p.size * 0.55, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.restore();
+          }
+        }
+
+        function drawTitleOverlay() {
+          const minDim = Math.min(W, H);
+          const compact = W < 300;
+          const cx = W / 2;
+          const cy = H / 2;
+
+          // Animated attract-mode tracing letter in background
+          const pool = STAGES[activeStage].letters;
+          const demoChar = pool[demoIdx % pool.length];
+          const demoLetter = LETTERS[demoChar];
+          const demoMetrics = {
+            cx,
+            cy: compact ? cy + 8 : H * 0.5,
+            scale: Math.max(44, Math.min(130, minDim * 0.28)),
+          };
+          const totalPts = demoLetter.totalCheckpoints;
+          let rem = Math.min(1, demoProgress) * totalPts;
+          let dStroke = 0;
+          let dProg = 0;
+          for (let s = 0; s < demoLetter.strokes.length; s++) {
+            const len = Math.max(1, demoLetter.strokes[s].pts.length - 1);
+            if (rem >= len && s < demoLetter.strokes.length - 1) {
+              rem -= len;
+              dStroke = s + 1;
+            } else {
+              dProg = Math.min(len, Math.floor(rem));
+              break;
+            }
+          }
+          ctx.save();
+          ctx.globalAlpha = 0.55;
+          drawTracingLetter(demoLetter, demoMetrics, dStroke, dProg, demoProgress >= 1);
+          ctx.restore();
+
+          ctx.save();
+          ctx.fillStyle = "rgba(14, 9, 36, 0.42)";
+          ctx.fillRect(0, 0, W, H);
+
+          const bob = reducedMotion ? 0 : Math.sin(elapsed * 3) * 5;
+          const titleSize = Math.max(24, Math.min(62, minDim * 0.125));
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${titleSize}px "Courier New", Courier, monospace`;
+          const titleY = compact ? cy - titleSize * 0.65 : Math.max(72, H * 0.22);
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("PHONICS TRACE", cx + 4, titleY + bob + 4);
+          ctx.fillStyle = "#38d9ff";
+          ctx.fillText("PHONICS TRACE", cx, titleY + bob);
+
+          if (!compact) {
+            const gap = Math.max(12, Math.min(24, W * 0.035));
+            const btnW = Math.max(124, Math.min(200, (W - 48 - gap) / 2));
+            const btnH = Math.max(66, Math.min(84, H * 0.13));
+            const stageY = Math.max(titleY + titleSize * 0.9, H * 0.42);
+
+            stage1Rect = { x: cx - btnW - gap / 2, y: stageY, w: btnW, h: btnH };
+            stage2Rect = { x: cx + gap / 2, y: stageY, w: btnW, h: btnH };
+
+            [
+              { rect: stage1Rect, id: 1, title: "STAGE 1", chars: STAGES[1].letters },
+              { rect: stage2Rect, id: 2, title: "STAGE 2", chars: STAGES[2].letters },
+            ].forEach((item) => {
+              const selected = activeStage === item.id;
+              drawRoundedBox(
+                item.rect.x,
+                item.rect.y,
+                item.rect.w,
+                item.rect.h,
+                18,
+                selected ? "rgba(56, 217, 255, 0.28)" : "rgba(18, 11, 46, 0.86)",
+                selected ? "#38d9ff" : "#6c72a8",
+                selected ? 4 : 2.5
+              );
+              ctx.font = `900 ${Math.max(13, Math.min(18, btnW * 0.115))}px "Courier New", Courier, monospace`;
+              ctx.fillStyle = selected ? "#ffe14d" : "#d0d6ff";
+              ctx.fillText(item.title, item.rect.x + item.rect.w / 2, item.rect.y + item.rect.h * 0.28);
+
+              const n = item.chars.length;
+              const innerW = item.rect.w - 24;
+              const step = innerW / n;
+              const lScale = Math.min(step * 0.44, item.rect.h * 0.2);
+              const ly = item.rect.y + item.rect.h * 0.68;
+              item.chars.forEach((ch, idx) => {
+                drawMiniVectorLetter(
+                  ch,
+                  item.rect.x + 12 + step * (idx + 0.5),
+                  ly,
+                  lScale,
+                  selected ? "#ffffff" : "#99eeff",
+                  Math.max(2.4, lScale * 0.22)
+                );
+              });
+            });
+
+            const playW = Math.max(200, Math.min(280, W * 0.62));
+            const playH = Math.max(62, Math.min(78, H * 0.12));
+            const playY = Math.min(H - playH - 26, stageY + btnH + Math.max(22, H * 0.05));
+            const pulse = reducedMotion ? 1 : 1 + Math.sin(elapsed * 4.2) * 0.035;
+            ctx.save();
+            ctx.translate(cx, playY + playH / 2);
+            ctx.scale(pulse, pulse);
+            drawRoundedBox(-playW / 2, -playH / 2, playW, playH, 22, "#38d9ff", "#ffe14d", 4);
+            ctx.font = `900 ${Math.max(22, Math.min(30, playH * 0.44))}px "Courier New", Courier, monospace`;
+            ctx.fillStyle = "#120b2e";
+            ctx.fillText("▶ TAP TO PLAY", 0, 1);
+            ctx.restore();
+          } else {
+            stage1Rect = { x: 0, y: 0, w: 0, h: 0 };
+            stage2Rect = { x: 0, y: 0, w: 0, h: 0 };
+            const bw = Math.min(W * 0.78, 180);
+            const bh = 38;
+            drawRoundedBox(cx - bw / 2, cy + 26, bw, bh, 14, "#38d9ff", "#ffe14d", 3);
+            ctx.font = `900 15px "Courier New", Courier, monospace`;
+            ctx.fillStyle = "#120b2e";
+            ctx.fillText("▶ TAP TO PLAY", cx, cy + 26 + bh / 2);
+          }
+          ctx.restore();
+        }
+
+        function drawPauseOverlay() {
+          if (state !== "paused") return;
+          ctx.save();
+          ctx.fillStyle = "rgba(12, 8, 30, 0.72)";
+          ctx.fillRect(0, 0, W, H);
+          const minDim = Math.min(W, H);
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${Math.max(28, Math.min(54, minDim * 0.11))}px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillText("PAUSED", W / 2, H * 0.44);
+
+          const bw = Math.max(190, Math.min(260, W * 0.6));
+          const bh = 62;
+          drawRoundedBox(W / 2 - bw / 2, H * 0.54, bw, bh, 18, "#38d9ff", "#ffffff", 3.5);
+          ctx.font = `900 22px "Courier New", Courier, monospace`;
+          ctx.fillStyle = "#120b2e";
+          ctx.fillText("▶ TAP TO PLAY", W / 2, H * 0.54 + bh / 2);
+          ctx.restore();
+        }
+
+        function draw() {
+          drawBackground();
+
+          if (state === "title") {
+            drawTitleOverlay();
+            return;
+          }
+
+          const letter = getCurrentLetter();
+          const metrics = getLetterMetrics();
+          drawTracingLetter(letter, metrics, strokeIdx, progressIdx, state === "celebrate");
+          drawCelebrateIcon(letter, metrics);
+          drawEffects();
+
+          drawStageProgressPips();
+          drawCircleControl(prevBtn, "◀", "#b57bff", "rgba(18, 11, 46, 0.86)", 0);
+          drawCircleControl(nextBtn, "▶", "#66ff66", "rgba(18, 11, 46, 0.86)", 0);
+          drawSpeakerControl();
+          drawPauseOverlay();
+        }
+
+        // -------------------------------------------------------------------
+        // Main Loop
+        // -------------------------------------------------------------------
+        let lastTime = performance.now();
+        function loop(now) {
+          const dt = Math.min(0.05, Math.max(0, (now - lastTime) / 1000));
+          lastTime = now;
+          update(dt);
+          draw();
+          requestAnimationFrame(loop);
+        }
+
+        initStars();
+        resize();
+        syncHud();
+        requestAnimationFrame(loop);
+      })();
+    </script>
+  </body>
+</html>
